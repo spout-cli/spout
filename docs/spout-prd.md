@@ -1,8 +1,8 @@
 # spout — Product Requirements Document
 
 **Status:** Draft  
-**Version:** 0.1  
-**Last Updated:** April 2026
+**Version:** 0.2  
+**Last Updated:** 20 April 2026
 
 ---
 
@@ -31,11 +31,15 @@ A Rust CLI called `spout` that maintains a JSON registry of which projects own w
 ```bash
 # Get a registered port (READ ONLY — never mutates)
 $ spout get postgres
-5436
+20000
 
 # Allocate a new port (MUTATES REGISTRY — explicit, intentional)
 $ spout alloc postgres
-5437
+20000
+
+# Reverse lookup — what owns a port? (READ ONLY)
+$ spout whois 20000
+20000: github.com/spout-cli/spout/postgres  (active, allocated 2026-04-20)
 ```
 
 The registry is a single JSON file. No daemon. No service. No background process. Readable by anything.
@@ -44,23 +48,25 @@ The registry is a single JSON file. No daemon. No service. No background process
 
 ## 3. Design Decisions
 
-### 3.1 Project Name Inference
+### 3.1 Project Identity
 
-**spout derives its project namespace from the current working directory name, matching Docker Compose's convention exactly.**
+**spout derives project identity in layered fallbacks, first match wins.** The goal is a stable identifier that survives filesystem moves and doesn't silently collide with same-basename repos in different directories.
 
-Docker Compose defaults to the directory name of wherever `docker-compose.yml` lives. If your project is at `/Users/you/projects/tyfi`, the compose project name is `tyfi`. That is what ends up in the `com.docker.compose.project` label on containers.
-
-spout does the same: `basename $PWD` is the project name. No flag required.
+1. **`git config --get remote.origin.url`** — parsed to `host/owner/repo`. Stable across clones, moves, and machines. Primary identity for the ~95% case of a user developing against a remote-tracked git repo.
+2. **`git rev-parse --show-toplevel`** — the git root's absolute path. Used when the repo has no remote configured (fresh `git init`, local-only experiments).
+3. **Absolute CWD** — fallback when there's no git repo at all, or when `git` isn't installed.
 
 ```bash
-# From /Users/you/projects/tyfi
-spout get postgres   # looks up "tyfi" + "postgres"
-spout alloc postgres # allocates for "tyfi" + "postgres"
+# In any subdir of a git-tracked project
+spout get postgres   # looks up "github.com/spout-cli/spout" + "postgres"
+spout alloc postgres # same identity regardless of cwd within the repo
 ```
 
-This means agents running inside a project directory automatically get the right namespace. The naming convention is already load-bearing everywhere — Docker container names, compose labels, what developers call the project in conversation — spout plugs into it rather than inventing a new one.
+Identity is cached per-process via a `OnceLock`, so the `git` shell-outs run at most once per invocation even when multiple command handlers would touch `current_project()`.
 
-**Known limitation (future work):** Monorepos. If `/projects/myapp/services/api` and `/projects/myapp/services/worker` exist, the directory names `api` and `worker` will collide across different monorepos. The correct fix is to walk up the directory tree to find the git root or `docker-compose.yml`, as Docker Compose itself does. This is explicitly deferred to v1.1. For MVP, directory name is correct and covers 95% of cases.
+**Rationale vs basename:** The original design used `basename $PWD`, matching Docker Compose's convention. That silently collides when two repos share a basename across different parent directories (`/work/tyfi` and `/home/personal/tyfi` both registered as "tyfi"). Git-remote identity is stable across filesystem moves and unique across the whole host. Basename is still effectively the identity for non-git directories, via the CWD-path fallback.
+
+**Deferred to follow-up:** Compose-file inference (`spout alloc` with no args, parsed from `docker-compose.yml` to allocate for every declared service). Bind-mount source path detection for containerised dev environments. Both are pure ergonomic wins on top of the identity layer — not MVP.
 
 ### 3.2 The Mutation Boundary
 
@@ -71,9 +77,14 @@ This is the single most important design decision for agent safety. Agents frequ
 | Command | Mutates Registry | Use When |
 |---------|-----------------|----------|
 | `spout get <service>` | ❌ Never | Reading a registered port |
-| `spout alloc <service>` | ✅ Always | Registering a new port for the first time |
+| `spout alloc <service>` | ✅ Always | Registering a new port (idempotent — re-returns existing if already registered) |
 | `spout set <service> <port>` | ✅ Always | Manually registering a specific port |
-| `spout rm <service>` | ✅ Always | Removing a registration |
+| `spout rm <service>` | ✅ Always | Removing a registration (appends to history) |
+| `spout ls [--project]` | ❌ Never | Listing registrations |
+| `spout check <port>` | ❌ Never | OS bind-test diagnostic |
+| `spout whois <port> [--history]` | ❌ Never | Reverse lookup — who owns this port? |
+
+No flag on any read-only command can flip it into a mutator. This is enforced convention across every major CLI tool (kubectl, git, aws, helm, terraform) and agents have been trained against it.
 
 ### 3.3 Permanent Leases
 
@@ -81,7 +92,7 @@ Ports are permanently registered until explicitly removed with `spout rm`. There
 
 **Rationale:** The failure mode of "container stopped and something else stole my port" is worse than stale registry entries. Permanent leases mean your ports are yours until you say otherwise. The registry grows slowly (one entry per project per service) and never surprises you.
 
-`spout gc` is provided for periodic hygiene — it audits the registry against currently running Docker projects and surfaces stale entries for review, but does not auto-delete.
+Periodic hygiene (surfacing stale entries against currently-present projects) is a planned follow-up feature — see §18. In MVP, `spout rm` is the only cleanup path, and `spout whois --history` lets you look up what released ports used to be.
 
 ### 3.4 Varlock Integration
 
@@ -141,23 +152,32 @@ spout is not responsible for keeping `.env` files in sync. If you need that, use
 {
   "version": 1,
   "projects": {
-    "tyfi": {
-      "postgres": 5436,
-      "api": 8081,
-      "web": 5173,
-      "mailpit-smtp": 1025,
-      "mailpit-ui": 8025
+    "github.com/spout-cli/spout": {
+      "postgres": {"port": 20000, "allocated": "2026-04-20"},
+      "redis":    {"port": 20001, "allocated": "2026-04-20"}
     },
-    "myproject": {
-      "postgres": 5434,
-      "api": 8080,
-      "web": 3000
+    "github.com/other/project": {
+      "postgres": {"port": 20002, "allocated": "2026-04-15"}
     }
-  }
+  },
+  "history": [
+    {
+      "project": "github.com/spout-cli/spout",
+      "service": "postgres",
+      "port": 19999,
+      "allocated": "2026-01-10",
+      "released": "2026-04-20",
+      "reason": "user requested"
+    }
+  ]
 }
 ```
 
-The `version` field is mandatory. It exists for future migration paths. If the version field is missing or unrecognised, spout exits with a clear error — it does not attempt to parse an unknown format.
+The project key is the identity string derived per §3.1 (git remote, git root, or CWD path).
+
+Each live entry carries an `allocated` date alongside the port — this lets `spout whois` answer "was this port ours?" against a log entry from an earlier time window. When a port is released (via `rm` or reallocation), the live entry moves into `history` with a `released` date and a `reason`.
+
+The `version` field is mandatory. If the version field is missing or unrecognised, spout exits with code 4 and a clear error — it does not attempt to parse an unknown format.
 
 **Registry location:**
 - Default: `~/.spout.json`
@@ -176,12 +196,13 @@ The `version` field is mandatory. It exists for future migration paths. If the v
 spout get <service>
 
 # Allocate a new port — finds free port, registers it, prints it [MUTATES]
+# Idempotent: if already registered, returns the existing port.
 spout alloc <service>
 
 # Register a specific port manually [MUTATES]
 spout set <service> <port>
 
-# Remove a registration [MUTATES]
+# Remove a registration (appends to history) [MUTATES]
 spout rm <service>
 
 # List all registrations
@@ -193,12 +214,16 @@ spout ls --project
 # Check if a specific port is available (exit 0 = free, exit 1 = taken)
 spout check <port>
 
-# Audit stale registry entries against running Docker projects
-spout gc
+# Reverse lookup — which project/service owns this port? [READ ONLY]
+# Default: live registry only. With --history: live + released entries.
+spout whois <port>
+spout whois <port> --history
 
 # Print version
 spout --version
 ```
+
+`spout gc` (periodic hygiene / stale-entry audit) is deferred to follow-up. The history mechanism covers the immediate "what was this port?" debugging use case.
 
 ### Output Contract
 
@@ -232,12 +257,12 @@ The help text is agent-readable as a first-class concern. Every mutating command
 ```
 COMMANDS:
     get <service>           Read a registered port [READ ONLY]
-    alloc <service>         Register a new port [MUTATES REGISTRY]
+    alloc <service>         Register a new port (idempotent) [MUTATES REGISTRY]
     set <service> <port>    Register a specific port [MUTATES REGISTRY]
     rm <service>            Remove a registration [MUTATES REGISTRY]
-    ls                      List all registrations
-    check <port>            Check if a port is available
-    gc                      Audit stale entries
+    ls [--project]          List all registrations [READ ONLY]
+    check <port>            Check if a port is free on the OS [READ ONLY]
+    whois <port>            Reverse lookup: who owns this port? [READ ONLY]
 ```
 
 The `[READ ONLY]` and `[MUTATES REGISTRY]` annotations are not for humans — they are specifically for LLMs pattern-matching on help output. Agents routinely call `--help` before acting.
@@ -248,30 +273,20 @@ The `[READ ONLY]` and `[MUTATES REGISTRY]` annotations are not for humans — th
 
 When `spout alloc <service>` is called:
 
-1. **Check the registry** — is this project+service already registered? If yes, print it and exit 0 (idempotent).
-2. **Determine the default starting port** — well-known service types have defaults:
+1. **Idempotent check** — is this project+service already registered? If yes, print the existing port and exit 0. No bind-test, no re-validation. The registry is the source of truth for ownership.
+2. **Walk the range** — `20000..=32767` (12,768 ports, bounded below by well-known service space and above by Linux's default ephemeral port range). Ports in the registry claimed by any project are skipped. Ports bound on the OS (TCP `0.0.0.0:<port>` and `[::]:<port>` if IPv6 is available) are skipped.
+3. **Register the first free candidate** — claim it in the registry with today's date as `allocated`, write atomically (tempfile + rename), return the port.
+4. **Exhausted range** — if no candidate passes both checks, exit with code 2 and a clear error message naming the service and the range searched.
 
-| Service name(s) | Default start port |
-|-----------------|-------------------|
-| `postgres`, `postgresql` | 5432 |
-| `mysql`, `mariadb` | 3306 |
-| `redis` | 6379 |
-| `mongodb`, `mongo` | 27017 |
-| `rabbitmq` | 5672 |
-| `elasticsearch` | 9200 |
-| `meilisearch` | 7700 |
-| `api`, `http`, `server` | 8080 |
-| `web`, `frontend`, `ui` | 3000 |
-| `mailpit-smtp`, `smtp` | 1025 |
-| `mailpit-ui` | 8025 |
-| Unknown | 19000 |
+**Why 20000–32767, not conventional-port walking:**
 
-3. **Walk forward from the default** — for each candidate port:
-   - Check the registry (is another project claiming it?)
-   - Check the OS via `net::TcpListener::bind` — check **both IPv4 and IPv6**
-   - If both clear → register and return
-4. **Upper bound:** Stop at default start + 1000. If no port found, exit with code 2 and a clear error message.
-5. **Write back** — atomic write: temp file + `rename()`.
+An earlier design walked forward from conventional service ports (5432 for postgres, 6379 for redis, etc.). That created the exact failure mode spout was built to prevent: if a docker container was *stopped* at alloc time, the OS-bind check passed, spout handed out its port, and the container collided on next startup. The 20000–32767 range sits above well-known service ports (so non-spout tools almost never bind there) and below the OS ephemeral range. Collision surface with real software is vanishingly small.
+
+**Legibility trade-off:** losing conventional ports means the port number itself doesn't tell you "that's postgres-ish" at a glance. The `spout whois <port>` reverse-lookup command closes that gap — any port in the wild is one command away from a definitive answer.
+
+**Stale-port handling:** if our registered port gets grabbed by some unrelated process between alloc and use, `docker-compose up` fails loud with the OS's "address already in use" error. Recovery: `spout rm <service> && spout alloc <service>`. No silent reallocation — a bind-test can't distinguish "our container has it (fine)" from "something else stole it (broken)", so spout doesn't try.
+
+IPv6 availability is probed once per process via `TcpListener::bind("[::]:0")` and cached in a `OnceLock`.
 
 ---
 
@@ -293,7 +308,7 @@ Platform: `flock` syscall on Linux/macOS. Windows is not a target for v1.
 
 ## 9. Env Var Naming
 
-When generating environment variable names from service names (for documentation and `spout gc` output):
+When generating environment variable names from service names (for documentation and `spout ls` output):
 
 **Rule:** Uppercase, hyphens to underscores, append `_PORT`.
 
@@ -311,7 +326,7 @@ This rule must be explicitly documented in `spout help` output and the README, b
 
 ## 10. Error Handling
 
-- **Corrupt registry:** Exit code 3, clear message to stderr: `spout: registry file is malformed. Run 'spout gc --check' to diagnose or delete ~/.spout.json to reset.`
+- **Corrupt registry:** Exit code 3, clear message to stderr describing the parse failure. Recovery: delete the registry file to reset, or restore from backup.
 - **Unknown registry version:** Exit code 4, message names the version found and the version supported.
 - **No free port found:** Exit code 2, message states the service, the range searched, and suggests `spout ls` to review allocations.
 - **No panics in production code.** All error paths must be explicitly handled.
@@ -344,22 +359,25 @@ The project name is inferred from the current directory automatically.
 The absolute minimum viable version:
 
 **In scope:**
-- `spout get` / `spout alloc` / `spout set` / `spout rm` / `spout ls` / `spout check`
-- CWD-based project name inference
-- `~/.spout.json` read/write with file locking and atomic writes
-- `SPOUT_REGISTRY` env var override
-- Well-known default port ranges
-- IPv4 + IPv6 port availability checks
+- `spout get` / `spout alloc` / `spout set` / `spout rm` / `spout ls` / `spout check` / `spout whois`
+- Layered project identity (git remote → git root → CWD), cached per-process
+- `~/.spout.json` read/write with fd-lock file locking and atomic writes (tempfile + rename)
+- `SPOUT_REGISTRY` env var override, lock path derived from registry path
+- 20000–32767 allocation range
+- IPv4 + IPv6 port bind-tests, IPv6 availability probed and cached
+- History array with released entries + `spout whois --history` reverse lookup
 - Exit code table (all codes implemented from day one)
 - stdout/stderr contract strictly enforced
 - Registry version field
 
 **Explicitly out of scope for MVP:**
-- `spout gc`
+- `spout gc` (stale-entry audit) — the `history` mechanism covers the debug use case
 - Docker container scanning (`spout scan`)
-- Monorepo / git-root detection
+- Compose-file inference (`spout alloc` no-args walking `docker-compose.yml`)
+- Bind-mount source path detection for dev containers
 - Windows support
 - Shell completions
+- History `--prune` (history stays tiny in practice)
 
 ---
 
@@ -424,7 +442,7 @@ Use spout whenever you need to:
 
 spout get <service>
   Returns the registered port for <service> in the current project.
-  Infers the project name from the current working directory.
+  Derives project identity from git remote, git root, or CWD (layered fallback).
   READ ONLY — never mutates the registry.
   Exit code 1 if not registered.
 
@@ -432,24 +450,29 @@ spout alloc <service>
   Finds a free port, registers it for <service> in the current project, and prints it.
   MUTATES REGISTRY — only call this when you intend to register a new port.
   Idempotent — if already registered, returns the existing port.
+  Walks 20000–32767 for candidates.
 
 spout ls
   Lists all registered ports. Use --project to filter to the current project.
 
 spout rm <service>
-  Removes a registration. Use when decommissioning a service.
-
-spout gc
-  Audits stale entries (projects whose directories no longer exist).
-  Use --prune to remove them.
+  Removes a registration. The old port is appended to history with a reason,
+  so 'spout whois --history' can still find it later.
 
 spout check <port>
-  Exit code 0 if the port is free, 1 if taken.
+  Exit code 0 if the port is free on the OS, 1 if bound.
+
+spout whois <port>
+  Reverse lookup — which project/service owns this port?
+  Default: live registry only. With --history, also searches released entries.
 
 ## The mutation boundary
 
-get, ls, check — read only, safe to call speculatively
-alloc, set, rm, gc --prune — mutate the registry, call intentionally
+get, ls, check, whois — read only, safe to call speculatively
+alloc, set, rm — mutate the registry, call intentionally
+
+No flag on any read-only command flips it into a mutator. Spout follows the
+convention every major CLI tool uses (kubectl get, git status, aws describe-*).
 
 ## Exit codes
 
@@ -472,10 +495,14 @@ In .env.schema files, reference spout via exec():
   dev:
       POSTGRES_PORT=$(shell spout get postgres) docker compose up -d
 
-## Project name inference
+## Project identity
 
-spout uses the current working directory name as the project name,
-matching Docker Compose's convention. No configuration required.
+spout derives project identity in layered fallback order:
+1. git config --get remote.origin.url, parsed to host/owner/repo
+2. git rev-parse --show-toplevel (git root absolute path)
+3. Absolute current working directory
+
+Identity is cached per-process. No configuration required.
 ```
 
 **`llms.txt` is a first-class deliverable, not an afterthought.** It ships with v1.0.
@@ -496,7 +523,7 @@ None. All resolved — see Section 16.
 
 These were open questions, now closed:
 
-- **`spout gc` behaviour** — surface-only by default. `--prune` flag for auto-removal. Only flags entries where the project directory no longer exists — stopped containers are not stale.
+- **`spout gc` behaviour** — deferred to follow-up. The history mechanism covers the immediate debug use case ("what was port X?"). Stale-entry detection against currently-present directories is a separate concern.
 - **Release strategy** — `cargo-dist` for binary distribution (GitHub releases, Homebrew tap, `curl | sh` installer) + `cargo-release` for version bumping and crates.io publishing.
 - **License** — dual `MIT OR Apache-2.0`, the Rust community standard.
 - **Crate pinning** — commit `Cargo.lock` (binary crate convention). No premature pinning in `Cargo.toml`.
@@ -504,6 +531,10 @@ These were open questions, now closed:
 - **`spout env`** — dropped. Varlock owns env management. Makefile pattern covers the raw case.
 - **GitHub organisation** — `spout-cli`. Free, same credentials as personal account, decouples the tool from a personal profile, install URLs are stable.
 - **Shell completions** — ship with v1.0 via `clap_complete`. cargo-dist bundles them into the Homebrew formula automatically.
+- **Project identity** (resolved 2026-04-20) — layered: git remote URL → git root path → CWD path. Originally was `basename $PWD`; changed when that revealed silent collisions between same-basename repos in different directories.
+- **Allocation range** (resolved 2026-04-20) — fixed at 20000–32767, no service-specific starting ports. Originally walked forward from conventional ports (5432, 6379, etc.); changed because that created the exact failure mode spout was built to prevent (stopped containers on conventional ports getting their ports stolen).
+- **History in registry** (resolved 2026-04-20) — each release (via `rm` or reallocation) appends to a `history` array. `spout whois --history` searches both live and historical entries. No auto-pruning.
+- **Bind-test placement** (resolved 2026-04-20) — only during fresh allocation (to avoid handing out a port something else is actively using) and in the explicit `spout check` diagnostic. Not in `alloc` for idempotent returns, not in `get`. Registry is the source of truth for ownership; bind-test can't distinguish "our container has it" from "something else stole it".
 
 ---
 
@@ -521,8 +552,12 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 
 ## 18. Future Work
 
-- `spout scan` — discover allocations from running Docker containers via compose labels
-- Monorepo support — walk up to git root / `docker-compose.yml` instead of bare `basename $PWD`
-- Shell completions (bash, zsh, fish)
-- Windows support
-- `spout env --dotenv` — for projects not using varlock, generate a `.env` snippet
+- **Compose inference** — `spout alloc` with no arguments parses `docker-compose.yml` in the current directory and auto-allocates for every service declared. Reduces typing for the common multi-service case.
+- **`spout scan`** — discover and pre-reserve allocations from running + stopped Docker containers via `docker ps -a`. Closes the remaining stale-port gap for non-20000-range scenarios.
+- **`spout gc`** — stale-entry audit: surface projects whose git remotes / paths no longer resolve. Surface-only by default; `--prune` for auto-removal.
+- **Bind-mount source path detection** — for containerised dev environments where CWD is a mount point, walk `/proc/self/mountinfo` to find the source path.
+- **Shell completions** (bash, zsh, fish) via `clap_complete`.
+- **Windows support.**
+- **`spout env --dotenv`** — for projects not using varlock, generate a `.env` snippet.
+- **`spout realloc <service>`** — convenience shortcut for `spout rm <svc> && spout alloc <svc>`.
+- **UDP bind-testing** — current implementation tests TCP only.
