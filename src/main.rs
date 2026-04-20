@@ -1,5 +1,6 @@
 mod error;
 mod project;
+mod services;
 
 use error::SpoutError;
 use std::process::exit;
