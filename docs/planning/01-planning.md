@@ -2,7 +2,84 @@
 
 **Stage:** MVP core  
 **Written:** Before coding begins  
-**Covers:** Project scaffold through working `get`, `alloc`, `set`, `rm`, `ls`, `check`
+**Covers:** Project scaffold through working `get`, `alloc`, `set`, `rm`, `ls`, `check`, `whois`
+
+---
+
+## ⚠ Stage 1.1 — Design Revision (2026-04-20)
+
+After implementing `error.rs` and `project.rs`, a collaborative review surfaced design flaws that invalidate parts of the original plan below. This section supersedes the originals where noted. Read this before the rest.
+
+### What changed and why
+
+**1. Starting allocation at conventional ports creates the collision spout was built to prevent.**
+
+If a docker container that normally uses 5432 is *stopped* when `alloc` runs, the OS-bind check passes, spout registers 5432, and the container collides on next startup. That violates "no surprises" on day one of adoption — the very promise in the README.
+
+**Fix:** all allocation walks from 20000 (up to 32767, below Linux's default ephemeral range). Collision surface with real software becomes vanishingly small. `services.rs` collapses to an env-var-naming helper only — no default-port table.
+
+*Supersedes:* build order step 3 (services.rs lookup table), step 5 (walk-from-conventional allocator).
+
+**2. Losing conventional ports costs a real DX signal (seeing `5436` and thinking "postgres-ish").**
+
+**Fix:** add `spout whois <port>` — reverse lookup that turns any mystery port in the wild into one command's worth of answer. Works regardless of allocation scheme. The port number becomes opaque-but-debuggable, not opaque-and-mysterious.
+
+**3. Reallocated ports leave stale `.env` / config files mysterious.**
+
+**Fix:** registry gains a `history` array. When a port is reallocated or `rm`'d, the old entry is appended with release timestamp and reason. `spout whois --history` searches live + historical; default is live-only, with a not-found hint pointing at `--history`.
+
+Registry schema:
+
+```json
+{
+  "version": 1,
+  "projects": { "myproj": { "postgres": 19456 } },
+  "history": [
+    {"project": "myproj", "service": "postgres", "port": 19123,
+     "allocated": "2026-04-20", "released": "2026-10-20",
+     "reason": "external process bound port"}
+  ]
+}
+```
+
+No `--prune` command for v1 — history stays tiny (~100 entries/year), YAGNI until proven otherwise.
+
+**4. The stopped-external-service case can still happen (rare, but real in the 20000+ range too).**
+
+Recovery path instead of pre-prevention:
+
+- `spout get <service>` now bind-tests before returning. If registered port is unbindable, exits non-zero with stderr hint: `spout: 19123 registered but unavailable; run 'spout alloc <service>'`.
+- `spout alloc` becomes self-healing: if called on an already-registered service whose port is stale, reallocate, record the old port in history with reason, return new.
+- `get` stays strictly read (no registry mutation under any flag) — verified against universal CLI convention (kubectl get, git status, aws describe-* — no well-designed read command mutates under any flag).
+
+**5. Compose inference deferred.**
+
+Parsing `docker-compose.yml` for service names so `spout alloc` (no args) auto-allocates everything — good DX, not core loop. Follow-up commit, not v1 MVP.
+
+### Command list (revised)
+
+| Command | Mutates | Notes |
+|---|---|---|
+| `spout get <service>` | No | Bind-tests; exit non-zero on stale |
+| `spout alloc <service>` | Yes | Idempotent, self-healing, walks 20000–32767 |
+| `spout set <service> <port>` | Yes | Manual register |
+| `spout rm <service>` | Yes | Appends to history |
+| `spout ls [--project]` | No | List all / current project |
+| `spout check <port>` | No | Exit 0 free, 1 taken |
+| `spout whois <port> [--history]` | No | Reverse lookup (new) |
+
+### Build order (picks up after commit `fdce3c9`)
+
+Already committed: `error.rs` ✓, `project.rs` ✓.
+
+Remaining:
+1. `services.rs` — env-var-naming only (~20 lines)
+2. `registry.rs` — read/write, `with_lock`, atomic write, history append/query
+3. `allocator.rs` — walk 20000–32767, TCP bind (v4+v6), IPv6 probe cache, self-heal on stale
+4. `cli.rs` — clap definitions for all 7 commands
+5. `main.rs` — dispatch, tracing setup
+
+Exit codes unchanged from original PRD.
 
 ---
 
