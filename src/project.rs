@@ -6,15 +6,28 @@
 //! 2. `git rev-parse --show-toplevel` — git root absolute path. Used when
 //!    the repo has no remote.
 //! 3. Absolute CWD — when there's no git at all, or git isn't installed.
-
-#![cfg_attr(not(test), allow(dead_code))]
+//!
+//! Resolved identity is cached in a `OnceLock` — the two `git` shell-outs
+//! together cost ~60-100ms cold and would otherwise be paid on every
+//! single spout invocation.
 
 use std::env;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::error::SpoutError;
 
 pub fn current_project() -> Result<String, SpoutError> {
+    static CACHE: OnceLock<String> = OnceLock::new();
+    if let Some(cached) = CACHE.get() {
+        return Ok(cached.clone());
+    }
+    let resolved = resolve()?;
+    let _ = CACHE.set(resolved.clone());
+    Ok(resolved)
+}
+
+fn resolve() -> Result<String, SpoutError> {
     if let Some(identity) = git_remote_identity() {
         return Ok(identity);
     }

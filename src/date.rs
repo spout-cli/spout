@@ -4,8 +4,6 @@
 //! date crate, since `YYYY-MM-DD` is the only format we need and the
 //! algorithm is ~15 lines of proven integer math.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 /// Today's date as `YYYY-MM-DD`.
 pub fn today_iso() -> String {
     let secs = std::time::SystemTime::now()

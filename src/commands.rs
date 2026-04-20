@@ -1,8 +1,6 @@
 //! Command handlers. Each function is the business logic for one CLI
 //! subcommand. `main.rs` just dispatches to these.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -92,8 +90,6 @@ pub fn whois(
     }
     Ok(None)
 }
-
-// --- helpers ---
 
 fn validate_port(port: u16) -> Result<(), SpoutError> {
     if port < 1024 {
