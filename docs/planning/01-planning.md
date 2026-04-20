@@ -34,12 +34,12 @@ Registry schema:
 {
   "version": 1,
   "projects": {
-    "myproj": {
+    "github.com/spout-cli/spout": {
       "postgres": {"port": 19456, "allocated": "2026-04-20"}
     }
   },
   "history": [
-    {"project": "myproj", "service": "postgres", "port": 19123,
+    {"project": "github.com/spout-cli/spout", "service": "postgres", "port": 19123,
      "allocated": "2026-04-20", "released": "2026-10-20",
      "reason": "external process bound port"}
   ]
@@ -47,6 +47,22 @@ Registry schema:
 ```
 
 Live entries carry the allocation date too so it can follow the entry into history. Keeping `allocated` lets future-you correlate a port with log events from a specific time window.
+
+### Project identity
+
+Derived in layered order, first match wins:
+
+1. **`git config --get remote.origin.url`** — parse to `host/owner/repo` form. Stable across filesystem moves and across clones. Primary identity for ~95% of projects.
+2. **`git rev-parse --show-toplevel`** — git root absolute path. Used when the repo has no remote (fresh `git init`).
+3. **Absolute CWD** — when there's no git repo at all, or when `git` is not installed.
+
+If `git` is not on `PATH`, skip 1 and 2 and use 3 directly. Spout's audience has git (they're doing docker-compose dev), so this is defensive fallback, not a designed-for case.
+
+### Bind-test semantics (revised)
+
+Registry is the source of truth for ownership. Bind-test is only for "is this port free on the OS right now?" — which matters during fresh allocation (don't hand out a port someone else is actively using) and as an explicit diagnostic (`spout check <port>`). Not in `alloc` (idempotent return of existing), not in `get` (pure registry lookup).
+
+Genuinely stale ports (unrelated process grabbed ours while our container was down) surface as docker-compose errors at use time. Recovery: `spout rm <service> && spout alloc <service>`. Rare in practice — 20000+ range sees almost no non-spout binds, and mature adoption means all services are spout-managed anyway.
 
 No `--prune` command for v1 — history stays tiny (~100 entries/year), YAGNI until proven otherwise.
 
