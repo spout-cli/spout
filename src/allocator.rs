@@ -11,8 +11,7 @@
 //! between then and now) surface as docker-compose errors at use time.
 //! Recovery is manual: `spout rm <service> && spout alloc <service>`.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
+use std::collections::HashSet;
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -29,8 +28,16 @@ pub fn alloc(registry_path: &Path, project: &str, service: &str) -> Result<u16, 
             return Ok(port);
         }
 
+        // Materialise claimed ports once so the hot loop below is O(1) per
+        // candidate instead of scanning every project × service each time.
+        let claimed: HashSet<u16> = r
+            .projects
+            .values()
+            .flat_map(|services| services.values().map(|e| e.port))
+            .collect();
+
         for candidate in BASE_PORT..=MAX_PORT {
-            if r.is_port_claimed(candidate).is_some() {
+            if claimed.contains(&candidate) {
                 continue;
             }
             if !is_port_free_on_os(candidate) {

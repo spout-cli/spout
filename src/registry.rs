@@ -7,8 +7,6 @@
 //! Reads via `read` are lock-free — safe because writes are atomic
 //! (tempfile + rename).
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
