@@ -66,6 +66,26 @@ curl -sSfL https://spout.dev/install.sh | sh
 cargo install spout
 ```
 
+### Shell completions
+
+Once spout is installed, generate a completion script for your shell and drop it in the conventional location:
+
+```bash
+# bash
+spout completions bash | sudo tee /etc/bash_completion.d/spout >/dev/null
+
+# zsh — your fpath needs to include the target directory
+mkdir -p ~/.zsh/completions
+spout completions zsh > ~/.zsh/completions/_spout
+
+# fish
+spout completions fish > ~/.config/fish/completions/spout.fish
+```
+
+Restart your shell (or `source` the file) and subcommand + flag completion works under `spout <TAB>`.
+
+Elvish and PowerShell are also supported via `spout completions elvish` and `spout completions powershell` — install per your shell's conventions.
+
 ---
 
 ## Usage

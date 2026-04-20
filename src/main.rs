@@ -9,7 +9,7 @@ mod services;
 
 use std::process::exit;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use tracing_subscriber::EnvFilter;
 
 use cli::{Cli, Commands};
@@ -79,6 +79,10 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 exit(1);
             }
         },
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "spout", &mut std::io::stdout());
+        }
     }
     Ok(())
 }
