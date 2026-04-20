@@ -1,3 +1,4 @@
+mod allocator;
 mod date;
 mod error;
 mod project;
