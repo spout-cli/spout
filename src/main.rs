@@ -1,5 +1,6 @@
 mod error;
 mod project;
+mod registry;
 mod services;
 
 use error::SpoutError;

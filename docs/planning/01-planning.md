@@ -33,7 +33,11 @@ Registry schema:
 ```json
 {
   "version": 1,
-  "projects": { "myproj": { "postgres": 19456 } },
+  "projects": {
+    "myproj": {
+      "postgres": {"port": 19456, "allocated": "2026-04-20"}
+    }
+  },
   "history": [
     {"project": "myproj", "service": "postgres", "port": 19123,
      "allocated": "2026-04-20", "released": "2026-10-20",
@@ -41,6 +45,8 @@ Registry schema:
   ]
 }
 ```
+
+Live entries carry the allocation date too so it can follow the entry into history. Keeping `allocated` lets future-you correlate a port with log events from a specific time window.
 
 No `--prune` command for v1 — history stays tiny (~100 entries/year), YAGNI until proven otherwise.
 
