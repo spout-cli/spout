@@ -1,3 +1,4 @@
+mod date;
 mod error;
 mod project;
 mod registry;
