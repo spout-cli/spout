@@ -50,7 +50,7 @@ pub enum Commands {
         history: bool,
     },
 
-    /// Generate a shell completion script for the given shell
+    /// Generate a shell completion script for the given shell [READ ONLY]
     Completions { shell: Shell },
 }
 
