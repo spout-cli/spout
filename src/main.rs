@@ -6,6 +6,7 @@ mod error;
 mod project;
 mod registry;
 mod services;
+mod tui;
 
 use std::process::exit;
 
@@ -57,9 +58,10 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
         Commands::Rm { service } => {
             commands::rm(&reg_path, &service)?;
         }
-        Commands::Ls { project } => {
-            let out = commands::ls(&reg_path, project)?;
-            println!("{out}");
+        Commands::Ls { project, no_tui } => {
+            if let Some(out) = commands::ls(&reg_path, project, no_tui)? {
+                println!("{out}");
+            }
         }
         Commands::Check { port } => {
             if !commands::check(port) {

@@ -2,6 +2,7 @@
 //! subcommand. `main.rs` just dispatches to these.
 
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::allocator;
@@ -50,14 +51,33 @@ pub fn rm(registry_path: &Path, service: &str) -> Result<(), SpoutError> {
     })
 }
 
-pub fn ls(registry_path: &Path, project_only: bool) -> Result<String, SpoutError> {
+/// List registered services.
+///
+/// Returns `Ok(Some(text))` for the plain-text path (piped stdout or
+/// `--no-tui`). Returns `Ok(None)` when the TUI has already rendered and
+/// exited, in which case the caller should not print anything further.
+pub fn ls(
+    registry_path: &Path,
+    project_only: bool,
+    no_tui: bool,
+) -> Result<Option<String>, SpoutError> {
     let reg = registry::read(registry_path)?;
-    if project_only {
-        let project = project::current_project()?;
-        Ok(format_project_block(&project, reg.projects.get(&project)))
+    let project_name = if project_only {
+        Some(project::current_project()?)
     } else {
-        Ok(format_all(&reg))
+        None
+    };
+
+    if std::io::stdout().is_terminal() && !no_tui {
+        crate::tui::render(&reg, project_name.as_deref())?;
+        return Ok(None);
     }
+
+    let text = match project_name {
+        Some(p) => format_project_block(&p, reg.projects.get(&p)),
+        None => format_all(&reg),
+    };
+    Ok(Some(text))
 }
 
 pub fn check(port: u16) -> bool {
@@ -213,7 +233,7 @@ mod tests {
     #[test]
     fn ls_empty_registry_is_descriptive() {
         let (_dir, path) = temp_registry();
-        let out = ls(&path, false).unwrap();
+        let out = ls(&path, false, true).unwrap().unwrap();
         assert!(out.contains("no registrations"));
     }
 
@@ -222,7 +242,7 @@ mod tests {
         let (_dir, path) = temp_registry();
         alloc(&path, "postgres").unwrap();
         alloc(&path, "redis").unwrap();
-        let out = ls(&path, false).unwrap();
+        let out = ls(&path, false, true).unwrap().unwrap();
         assert!(out.contains("postgres"));
         assert!(out.contains("redis"));
     }
