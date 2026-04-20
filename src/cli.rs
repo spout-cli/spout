@@ -5,6 +5,7 @@
 //! on them to reason about which commands are safe to call speculatively.
 
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 #[derive(Parser, Debug)]
 #[command(name = "spout", about = "Local development port registry", version)]
@@ -48,6 +49,9 @@ pub enum Commands {
         #[arg(long)]
         history: bool,
     },
+
+    /// Generate a shell completion script for the given shell
+    Completions { shell: Shell },
 }
 
 #[cfg(test)]
@@ -87,6 +91,15 @@ mod tests {
         match cli.command {
             Commands::Ls { project } => assert!(project),
             other => panic!("expected Ls, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_completions_for_bash() {
+        let cli = Cli::try_parse_from(["spout", "completions", "bash"]).unwrap();
+        match cli.command {
+            Commands::Completions { shell } => assert_eq!(shell, Shell::Bash),
+            other => panic!("expected Completions, got {other:?}"),
         }
     }
 
