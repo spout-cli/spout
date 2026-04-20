@@ -37,6 +37,10 @@ pub enum Commands {
         /// Filter to the current project only
         #[arg(long)]
         project: bool,
+
+        /// Force plain-text output even when stdout is a TTY
+        #[arg(long)]
+        no_tui: bool,
     },
 
     /// Check if a port is free on the OS (exit 0 free, 1 taken) [READ ONLY]
@@ -89,7 +93,22 @@ mod tests {
     fn parses_ls_project_flag() {
         let cli = Cli::try_parse_from(["spout", "ls", "--project"]).unwrap();
         match cli.command {
-            Commands::Ls { project } => assert!(project),
+            Commands::Ls { project, no_tui } => {
+                assert!(project);
+                assert!(!no_tui);
+            }
+            other => panic!("expected Ls, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_ls_no_tui_flag() {
+        let cli = Cli::try_parse_from(["spout", "ls", "--no-tui"]).unwrap();
+        match cli.command {
+            Commands::Ls { project, no_tui } => {
+                assert!(!project);
+                assert!(no_tui);
+            }
             other => panic!("expected Ls, got {other:?}"),
         }
     }

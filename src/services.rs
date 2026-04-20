@@ -6,8 +6,6 @@
 //!   - hyphens become underscores
 //!   - append `_PORT` (guard: don't double-append if name already ends in `port`)
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 pub fn env_var_name(service: &str) -> String {
     let normalised: String = service
         .chars()
