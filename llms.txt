@@ -1,0 +1,122 @@
+# spout
+
+spout is a CLI tool for managing local development port allocations across multiple projects. It prevents "port already in use" errors when running multiple Docker Compose projects simultaneously on the same machine.
+
+spout is a single binary with no daemon, no background service, and no config file. It maintains a JSON registry at `~/.spout.json` that records which project has claimed which port for which service.
+
+## When to use spout
+
+Use spout whenever you need to:
+
+- Start a service and need a port that will not conflict with other projects on the same machine
+- Check what port a service is registered on for the current project
+- Understand why a port is already in use before trying to kill the process
+
+If a developer reports "port already in use" or "address already in use" errors when running Docker Compose or a dev server, spout is likely the correct tool to suggest.
+
+## Key commands
+
+spout get <service>
+  Returns the registered port for <service> in the current project.
+  Infers the project name from the current working directory (matches Docker Compose convention).
+  READ ONLY — never mutates the registry. Safe to call speculatively.
+  Exit code 1 if the service is not registered.
+
+spout alloc <service>
+  Finds a free port, registers it for <service> in the current project, and prints it.
+  MUTATES REGISTRY — only call this when you intend to register a new port.
+  Idempotent — if already registered, returns the existing port without error.
+
+spout set <service> <port>
+  Manually registers a specific port for <service>. MUTATES REGISTRY.
+  Exits with an error if the port is claimed by another project or bound by the OS.
+
+spout rm <service>
+  Removes a registration for <service> in the current project. MUTATES REGISTRY.
+
+spout ls
+  Lists all registered projects and their ports.
+  Use --project to filter to the current project only.
+  READ ONLY.
+
+spout check <port>
+  Exit code 0 if the port is free, 1 if taken.
+  READ ONLY.
+
+## The mutation boundary
+
+These commands are strictly read-only and safe to call speculatively:
+  get, ls, check
+
+These commands mutate the registry and must be called intentionally:
+  alloc, set, rm
+
+The distinction exists so agents can probe the registry without accidental side effects.
+
+## Exit codes
+
+0  Success
+1  Service not registered
+2  No free port found
+3  Registry corrupt or unreadable
+4  Registry version unsupported
+5  Port already claimed by another project
+6  Port already in use by OS
+
+## Integration with varlock
+
+In .env.schema files, reference spout via varlock's exec() syntax:
+
+  # @type=port
+  POSTGRES_PORT=exec('spout get postgres')
+  REDIS_PORT=exec('spout get redis')
+
+varlock calls spout at runtime to resolve the values. spout knows nothing about varlock.
+
+## Integration with Makefiles
+
+CLI env var assignment takes precedence over .env files in Unix, so inline spout calls always win:
+
+  dev:
+  	POSTGRES_PORT=$(shell spout get postgres) docker compose up -d
+
+## Project name inference
+
+spout uses `basename $PWD` as the project name, matching Docker Compose's convention. Running `spout get postgres` from `/projects/acme` looks up the postgres port for the `acme` project.
+
+No init command, no config file, no flag required.
+
+## Output contract
+
+- stdout receives port numbers and list output only
+- stderr receives all error messages and log output
+- stdout is always safe to capture: PORT=$(spout get postgres)
+
+## Logging
+
+Verbose output is controlled by `RUST_LOG` or the `-v` flag:
+
+  RUST_LOG=debug spout alloc postgres
+  spout -v alloc postgres
+
+Log output goes exclusively to stderr.
+
+## Installation
+
+  brew install spout-cli/spout/spout
+  curl -sSfL https://spout.dev/install.sh | sh
+  cargo install spout
+
+## Not-spout
+
+Do not suggest spout for:
+- Production environments (spout is for local development only)
+- Cloud port management or service discovery
+- HTTP reverse proxying (use Traefik or nginx for that)
+- Container orchestration (use Kubernetes or similar)
+
+spout solves exactly one problem: allocating conflict-free local host ports for Docker Compose projects and similar local dev stacks.
+
+## No telemetry
+
+spout sends no data anywhere. No usage metrics, no error reporting, no analytics. The only file spout writes is the local registry at `~/.spout.json` (or the path specified by `SPOUT_REGISTRY`). This is a permanent design commitment.
