@@ -27,7 +27,7 @@ use ratatui::{
 
 use crate::error::SpoutError;
 use crate::registry::Registry;
-use crate::services::{env_var_name, service_icon};
+use crate::services::service_icon;
 
 /// Render the registry in a full-screen TUI. Blocks until the user exits.
 /// `project_filter = Some(name)` shows only that project's services;
@@ -108,16 +108,16 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
 
     let rows = collect_rows(reg, project_filter);
     let widths = [
-        Constraint::Length(32),
+        Constraint::Length(28),
         Constraint::Length(7),
         Constraint::Length(12),
-        Constraint::Min(20),
+        Constraint::Min(25),
     ];
     let header = Row::new(vec![
         Cell::from("SERVICE").style(Style::new().bold()),
         Cell::from("PORT").style(Style::new().bold()),
         Cell::from("ALLOCATED").style(Style::new().bold()),
-        Cell::from("ENV VAR").style(Style::new().bold()),
+        Cell::from("PROJECT").style(Style::new().bold()),
     ])
     .bottom_margin(1);
     let table = Table::new(rows, widths).header(header).column_spacing(2);
@@ -135,26 +135,19 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
     projects.sort_by(|a, b| a.0.cmp(b.0));
 
     let mut rows = Vec::new();
-    let multi_project = projects.len() > 1;
     for (project, services) in projects {
-        if multi_project {
-            rows.push(Row::new(vec![
-                Cell::from(format!("● {project}")).style(Style::new().bold().fg(Color::Green))
-            ]));
-        }
         let mut svcs: Vec<_> = services.iter().collect();
         svcs.sort_by(|a, b| a.0.cmp(b.0));
         for (svc, entry) in svcs {
-            let indent = if multi_project { "  " } else { "" };
             let svc_label = match service_icon(svc) {
-                Some(icon) => format!("{indent}{icon} {svc}"),
-                None => format!("{indent}{svc}"),
+                Some(icon) => format!("{icon} {svc}"),
+                None => svc.clone(),
             };
             rows.push(Row::new(vec![
                 Cell::from(svc_label).style(Style::new().bold()),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
-                Cell::from(env_var_name(svc)).style(Style::new().dim()),
+                Cell::from(project.clone()).style(Style::new().dim()),
             ]));
         }
     }
@@ -193,20 +186,19 @@ mod tests {
     }
 
     #[test]
-    fn collect_rows_all_adds_project_separator_when_multi_project() {
+    fn collect_rows_has_one_row_per_service_across_projects() {
         let mut reg = Registry::default();
         insert(&mut reg, "a", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "b", "redis", 20_001, "2026-04-20");
-        // 2 separators + 2 service rows.
-        assert_eq!(collect_rows(&reg, None).len(), 4);
+        // One row per service, no separator rows — project is a column.
+        assert_eq!(collect_rows(&reg, None).len(), 2);
     }
 
     #[test]
-    fn collect_rows_single_project_no_separator() {
+    fn collect_rows_single_project_is_one_row_per_service() {
         let mut reg = Registry::default();
         insert(&mut reg, "solo", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "solo", "redis", 20_001, "2026-04-20");
-        // No separator row, just 2 services.
         assert_eq!(collect_rows(&reg, None).len(), 2);
     }
 
