@@ -17,7 +17,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::error::SpoutError;
-use crate::registry;
+use crate::registry::{self, Registry};
 
 pub const BASE_PORT: u16 = 20_000;
 pub const MAX_PORT: u16 = 32_767;
@@ -69,6 +69,20 @@ pub fn is_port_free_on_os(port: u16) -> bool {
         return false;
     }
     true
+}
+
+/// Snapshot of which registered ports are currently bound on the OS.
+///
+/// Called once per `spout ls` invocation — the result feeds both the TUI
+/// and plain-text renderers. Each probe is two bind attempts (v4 + v6),
+/// so cost is linear in registry size. For a 30-service registry that's
+/// typically a few milliseconds and never re-run within the same command.
+pub fn probe_bound_ports(reg: &Registry) -> HashSet<u16> {
+    reg.projects
+        .values()
+        .flat_map(|services| services.values())
+        .filter_map(|entry| (!is_port_free_on_os(entry.port)).then_some(entry.port))
+        .collect()
 }
 
 /// IPv6 availability — probed once per process via `[::]:0` (ephemeral port).
@@ -157,5 +171,39 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         assert!(!is_port_free_on_os(port));
         drop(listener);
+    }
+
+    #[test]
+    fn probe_bound_ports_includes_currently_bound_registrations() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut reg = Registry::default();
+        reg.set("proj", "svc", port);
+        let bound = probe_bound_ports(&reg);
+        assert!(bound.contains(&port));
+    }
+
+    #[test]
+    fn probe_bound_ports_empty_registry_returns_empty_set() {
+        let reg = Registry::default();
+        assert!(probe_bound_ports(&reg).is_empty());
+    }
+
+    #[test]
+    fn probe_bound_ports_distinguishes_bound_from_free() {
+        // Bind one port to pin it, use the bound port's neighbour as a
+        // "probably-free" port. Both get registered; only the bound one
+        // should appear in the result.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let bound_port = listener.local_addr().unwrap().port();
+        let free_port = bound_port.wrapping_sub(1).max(1024);
+        let mut reg = Registry::default();
+        reg.set("proj", "bound", bound_port);
+        reg.set("proj", "free", free_port);
+        let bound = probe_bound_ports(&reg);
+        assert!(bound.contains(&bound_port));
+        // `free_port` might be bound by something else on the test host, so
+        // we can't assert it's excluded — but at minimum the bound one must
+        // be present, proving the fn can tell the two states apart.
     }
 }

@@ -1,14 +1,14 @@
 //! Command handlers. Each function is the business logic for one CLI
 //! subcommand. `main.rs` just dispatches to these.
 
-use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::allocator;
 use crate::error::SpoutError;
+use crate::format;
 use crate::project;
-use crate::registry::{self, Entry, HistoryEntry, Registry};
+use crate::registry;
 use crate::services::env_var_name;
 
 pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
@@ -74,14 +74,16 @@ pub fn ls(
         Some(Some(name)) => Some(name),
     };
 
+    let bound = allocator::probe_bound_ports(&reg);
+
     if std::io::stdout().is_terminal() && !no_tui {
-        crate::tui::render(&reg, project_name.as_deref())?;
+        crate::tui::render(&reg, project_name.as_deref(), &bound)?;
         return Ok(None);
     }
 
     let text = match project_name {
-        Some(p) => format_project_block(&p, reg.projects.get(&p)),
-        None => format_all(&reg),
+        Some(p) => format::project_block(&p, reg.projects.get(&p), &bound),
+        None => format::all(&reg, &bound),
     };
     Ok(Some(text))
 }
@@ -141,7 +143,7 @@ pub fn whois(
     if include_history {
         let entries = reg.history_for_port(port);
         if !entries.is_empty() {
-            return Ok(Some(format_history(&entries)));
+            return Ok(Some(format::history(&entries)));
         }
     }
     Ok(None)
@@ -152,55 +154,6 @@ fn validate_port(port: u16) -> Result<(), SpoutError> {
         return Err(SpoutError::PortInUse(port));
     }
     Ok(())
-}
-
-fn format_all(reg: &Registry) -> String {
-    if reg.projects.is_empty() {
-        return String::from("(no registrations)");
-    }
-    let mut sorted: Vec<_> = reg.projects.iter().collect();
-    sorted.sort_by(|a, b| a.0.cmp(b.0));
-    sorted
-        .into_iter()
-        .map(|(project, services)| format_project_block(project, Some(services)))
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-fn format_project_block(project: &str, services: Option<&HashMap<String, Entry>>) -> String {
-    let mut out = String::from(project);
-    out.push('\n');
-    match services {
-        Some(s) if !s.is_empty() => {
-            let width = s.keys().map(|k| k.len()).max().unwrap_or(0);
-            let mut sorted: Vec<_> = s.iter().collect();
-            sorted.sort_by(|a, b| a.0.cmp(b.0));
-            for (svc, entry) in sorted {
-                out.push_str(&format!(
-                    "  {:<width$}  {}  (since {})\n",
-                    svc,
-                    entry.port,
-                    entry.allocated,
-                    width = width
-                ));
-            }
-        }
-        _ => out.push_str("  (no registrations)\n"),
-    }
-    out.trim_end().to_owned()
-}
-
-fn format_history(entries: &[&HistoryEntry]) -> String {
-    entries
-        .iter()
-        .map(|e| {
-            format!(
-                "{}: was {}/{}  (allocated {}, released {} — {})",
-                e.port, e.project, e.service, e.allocated, e.released, e.reason
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 #[cfg(test)]
