@@ -9,7 +9,7 @@
 //! clipboard, no drilldown. Keeps the module under the 400-line cap
 //! and the UX promise tight ("see what's going on").
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 
 use ratatui::{
@@ -19,7 +19,7 @@ use ratatui::{
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
@@ -28,8 +28,15 @@ use ratatui::{
 
 use crate::error::SpoutError;
 use crate::format::port_status_glyph;
-use crate::registry::Registry;
+use crate::registry::{Entry, Registry};
 use crate::services::{env_var_name, service_icon};
+
+const COLUMN_WIDTHS: [Constraint; 4] = [
+    Constraint::Length(28),
+    Constraint::Length(7),
+    Constraint::Length(24),
+    Constraint::Min(12),
+];
 
 /// Render the registry in a full-screen TUI. Blocks until the user exits.
 /// `project_filter = Some(name)` shows only that project's services;
@@ -114,45 +121,91 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>, bound: 
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(title, layout[0]);
 
-    let rows = collect_rows(reg, project_filter, bound);
-    let widths = [
-        Constraint::Length(26),
-        Constraint::Length(7),
-        Constraint::Length(20),
-        Constraint::Length(12),
-        Constraint::Min(20),
-    ];
-    let header = Row::new(vec![
-        Cell::from("SERVICE").style(Style::new().bold()),
-        Cell::from("PORT").style(Style::new().bold()),
-        Cell::from("ENV VAR").style(Style::new().bold()),
-        Cell::from("ALLOCATED").style(Style::new().bold()),
-        Cell::from("PROJECT").style(Style::new().bold()),
-    ])
-    .bottom_margin(1);
-    let table = Table::new(rows, widths).header(header).column_spacing(2);
-    frame.render_widget(table, layout[1]);
+    let projects = sorted_projects(reg, project_filter);
+    render_body(frame, layout[1], &projects, bound);
 
     let footer = Paragraph::new(Line::from(" ● bound   ○ free   [q/Esc] exit ").dim());
     frame.render_widget(footer, layout[2]);
 }
 
-fn collect_rows(
-    reg: &Registry,
-    project_filter: Option<&str>,
+fn render_body(
+    frame: &mut Frame,
+    area: Rect,
+    projects: &[(&String, &HashMap<String, Entry>)],
     bound: &HashSet<u16>,
-) -> Vec<Row<'static>> {
+) {
+    if projects.is_empty() {
+        let msg = Paragraph::new(Line::from("  (no registrations)").dim());
+        frame.render_widget(msg, area);
+        return;
+    }
+    let sections = Layout::vertical(body_constraints(projects)).split(area);
+    frame.render_widget(column_header_table(), sections[0]);
+
+    let mut idx = 1;
+    for (i, (project, services)) in projects.iter().enumerate() {
+        frame.render_widget(project_title(project), sections[idx]);
+        frame.render_widget(services_table(services, bound), sections[idx + 1]);
+        idx += if i + 1 < projects.len() { 3 } else { 2 };
+    }
+}
+
+fn body_constraints(projects: &[(&String, &HashMap<String, Entry>)]) -> Vec<Constraint> {
+    let mut c = vec![Constraint::Length(2)];
+    for (i, (_, services)) in projects.iter().enumerate() {
+        c.push(Constraint::Length(1));
+        c.push(Constraint::Length(services.len() as u16));
+        if i + 1 < projects.len() {
+            c.push(Constraint::Length(1));
+        }
+    }
+    c
+}
+
+fn column_header_table() -> Table<'static> {
+    let header = Row::new(vec![
+        Cell::from("SERVICE").style(Style::new().bold()),
+        Cell::from("PORT").style(Style::new().bold()),
+        Cell::from("ENV VAR").style(Style::new().bold()),
+        Cell::from("ALLOCATED").style(Style::new().bold()),
+    ])
+    .bottom_margin(1);
+    Table::new(Vec::<Row>::new(), COLUMN_WIDTHS)
+        .header(header)
+        .column_spacing(2)
+}
+
+fn project_title<'a>(name: &'a str) -> Paragraph<'a> {
+    Paragraph::new(Line::from(vec![
+        Span::styled("▾ ", Style::new().fg(Color::Magenta)),
+        Span::styled(name, Style::new().bold().fg(Color::Magenta)),
+    ]))
+}
+
+fn services_table<'a>(services: &HashMap<String, Entry>, bound: &HashSet<u16>) -> Table<'a> {
+    Table::new(collect_service_rows(services, bound), COLUMN_WIDTHS).column_spacing(2)
+}
+
+fn sorted_projects<'a>(
+    reg: &'a Registry,
+    project_filter: Option<&str>,
+) -> Vec<(&'a String, &'a HashMap<String, Entry>)> {
     let mut projects: Vec<_> = match project_filter {
         None => reg.projects.iter().collect(),
         Some(name) => reg.projects.get_key_value(name).into_iter().collect(),
     };
     projects.sort_by(|a, b| a.0.cmp(b.0));
+    projects
+}
 
-    let mut rows = Vec::new();
-    for (project, services) in projects {
-        let mut svcs: Vec<_> = services.iter().collect();
-        svcs.sort_by(|a, b| a.0.cmp(b.0));
-        for (svc, entry) in svcs {
+fn collect_service_rows(
+    services: &HashMap<String, Entry>,
+    bound: &HashSet<u16>,
+) -> Vec<Row<'static>> {
+    let mut svcs: Vec<_> = services.iter().collect();
+    svcs.sort_by(|a, b| a.0.cmp(b.0));
+    svcs.into_iter()
+        .map(|(svc, entry)| {
             let is_bound = bound.contains(&entry.port);
             let status_style = if is_bound {
                 Style::new().fg(Color::Green)
@@ -168,16 +221,14 @@ fn collect_rows(
                 Span::raw(" "),
                 Span::styled(name, Style::new().bold()),
             ]);
-            rows.push(Row::new(vec![
+            Row::new(vec![
                 Cell::from(label),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
                 Cell::from(env_var_name(svc)).style(Style::new().fg(Color::Yellow)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
-                Cell::from(project.clone()).style(Style::new().dim()),
-            ]));
-        }
-    }
-    rows
+            ])
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -196,40 +247,39 @@ mod tests {
     }
 
     #[test]
-    fn collect_rows_empty_registry_yields_no_rows() {
+    fn sorted_projects_empty_registry_yields_no_entries() {
         let reg = Registry::default();
-        let bound = HashSet::new();
-        assert!(collect_rows(&reg, None, &bound).is_empty());
+        assert!(sorted_projects(&reg, None).is_empty());
     }
 
     #[test]
-    fn collect_rows_filters_to_named_project() {
+    fn sorted_projects_filters_to_named_project() {
         let mut reg = Registry::default();
         insert(&mut reg, "a", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "b", "redis", 20_001, "2026-04-20");
-        let bound = HashSet::new();
-        assert_eq!(collect_rows(&reg, Some("a"), &bound).len(), 1);
-        assert_eq!(collect_rows(&reg, Some("b"), &bound).len(), 1);
-        assert_eq!(collect_rows(&reg, Some("nope"), &bound).len(), 0);
+        assert_eq!(sorted_projects(&reg, Some("a")).len(), 1);
+        assert_eq!(sorted_projects(&reg, Some("b")).len(), 1);
+        assert_eq!(sorted_projects(&reg, Some("nope")).len(), 0);
     }
 
     #[test]
-    fn collect_rows_has_one_row_per_service_across_projects() {
+    fn sorted_projects_returns_alphabetical_order() {
         let mut reg = Registry::default();
-        insert(&mut reg, "a", "postgres", 20_000, "2026-04-20");
-        insert(&mut reg, "b", "redis", 20_001, "2026-04-20");
-        let bound = HashSet::new();
-        // One row per service, no separator rows — project is a column.
-        assert_eq!(collect_rows(&reg, None, &bound).len(), 2);
+        insert(&mut reg, "zebra", "postgres", 20_000, "2026-04-20");
+        insert(&mut reg, "apple", "redis", 20_001, "2026-04-20");
+        let sorted = sorted_projects(&reg, None);
+        assert_eq!(sorted[0].0, "apple");
+        assert_eq!(sorted[1].0, "zebra");
     }
 
     #[test]
-    fn collect_rows_single_project_is_one_row_per_service() {
+    fn collect_service_rows_one_row_per_service() {
         let mut reg = Registry::default();
         insert(&mut reg, "solo", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "solo", "redis", 20_001, "2026-04-20");
         let bound = HashSet::new();
-        assert_eq!(collect_rows(&reg, None, &bound).len(), 2);
+        let services = reg.projects.get("solo").unwrap();
+        assert_eq!(collect_service_rows(services, &bound).len(), 2);
     }
 
     #[test]
