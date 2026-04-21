@@ -1,6 +1,8 @@
 //! Project identity inference.
 //!
 //! Layered — first match wins:
+//! 0. `SPOUT_PROJECT` env var, trimmed. Escape hatch for monorepos and
+//!    anywhere the git-remote heuristic gives the wrong answer.
 //! 1. `git config --get remote.origin.url`, parsed to `host/owner/repo`.
 //!    Stable across filesystem moves.
 //! 2. `git rev-parse --show-toplevel` — git root absolute path. Used when
@@ -17,6 +19,8 @@ use std::sync::OnceLock;
 
 use crate::error::SpoutError;
 
+const SPOUT_PROJECT_ENV: &str = "SPOUT_PROJECT";
+
 pub fn current_project() -> Result<String, SpoutError> {
     static CACHE: OnceLock<String> = OnceLock::new();
     if let Some(cached) = CACHE.get() {
@@ -28,6 +32,13 @@ pub fn current_project() -> Result<String, SpoutError> {
 }
 
 fn resolve() -> Result<String, SpoutError> {
+    resolve_with_override(env::var(SPOUT_PROJECT_ENV).ok())
+}
+
+fn resolve_with_override(override_value: Option<String>) -> Result<String, SpoutError> {
+    if let Some(explicit) = override_value.and_then(non_empty_trimmed) {
+        return Ok(explicit);
+    }
     if let Some(identity) = git_remote_identity() {
         return Ok(identity);
     }
@@ -35,6 +46,15 @@ fn resolve() -> Result<String, SpoutError> {
         return Ok(path);
     }
     cwd_path()
+}
+
+fn non_empty_trimmed(raw: String) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 fn git_remote_identity() -> Option<String> {
@@ -228,5 +248,36 @@ mod tests {
         // whether an origin is configured, and the CI environment.
         let id = current_project().unwrap();
         assert!(!id.is_empty(), "current_project() returned empty string");
+    }
+
+    #[test]
+    fn resolve_with_override_honours_explicit_name() {
+        let id = resolve_with_override(Some("my-monorepo/web".to_owned())).unwrap();
+        assert_eq!(id, "my-monorepo/web");
+    }
+
+    #[test]
+    fn resolve_with_override_trims_whitespace() {
+        let id = resolve_with_override(Some("  custom  ".to_owned())).unwrap();
+        assert_eq!(id, "custom");
+    }
+
+    #[test]
+    fn resolve_with_override_falls_through_on_empty_string() {
+        let id = resolve_with_override(Some(String::new())).unwrap();
+        // Falls through to git/CWD logic — value depends on env but must be non-empty.
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn resolve_with_override_falls_through_on_whitespace_only() {
+        let id = resolve_with_override(Some("   ".to_owned())).unwrap();
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn resolve_with_override_falls_through_on_none() {
+        let id = resolve_with_override(None).unwrap();
+        assert!(!id.is_empty());
     }
 }
