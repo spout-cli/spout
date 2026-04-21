@@ -3,6 +3,7 @@ mod cli;
 mod commands;
 mod date;
 mod error;
+mod format;
 mod project;
 mod project_markers;
 mod registry;

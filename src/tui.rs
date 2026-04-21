@@ -9,6 +9,7 @@
 //! clipboard, no drilldown. Keeps the module under the 400-line cap
 //! and the UX promise tight ("see what's going on").
 
+use std::collections::HashSet;
 use std::io;
 
 use ratatui::{
@@ -20,24 +21,31 @@ use ratatui::{
     },
     layout::{Constraint, Layout},
     style::{Color, Style, Stylize},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame, Terminal,
 };
 
 use crate::error::SpoutError;
+use crate::format::port_status_glyph;
 use crate::registry::Registry;
 use crate::services::{env_var_name, service_icon};
 
 /// Render the registry in a full-screen TUI. Blocks until the user exits.
 /// `project_filter = Some(name)` shows only that project's services;
-/// `None` shows everything grouped by project.
-pub fn render(reg: &Registry, project_filter: Option<&str>) -> Result<(), SpoutError> {
+/// `None` shows everything grouped by project. `bound` is a snapshot of
+/// which ports are currently bound on the OS — probed once by the caller
+/// so the render loop stays cheap.
+pub fn render(
+    reg: &Registry,
+    project_filter: Option<&str>,
+    bound: &HashSet<u16>,
+) -> Result<(), SpoutError> {
     let mut guard = TerminalGuard::new()?;
     loop {
         guard
             .terminal
-            .draw(|f| draw(f, reg, project_filter))
+            .draw(|f| draw(f, reg, project_filter, bound))
             .map_err(wrap("draw"))?;
         if poll_exit_key()? {
             return Ok(());
@@ -91,7 +99,7 @@ fn wrap(op: &'static str) -> impl Fn(io::Error) -> SpoutError {
     move |e| SpoutError::RegistryCorrupt(format!("tui {op}: {e}"))
 }
 
-fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
+fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>, bound: &HashSet<u16>) {
     let layout = Layout::vertical([
         Constraint::Length(2),
         Constraint::Min(0),
@@ -106,9 +114,9 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(title, layout[0]);
 
-    let rows = collect_rows(reg, project_filter);
+    let rows = collect_rows(reg, project_filter, bound);
     let widths = [
-        Constraint::Length(24),
+        Constraint::Length(26),
         Constraint::Length(7),
         Constraint::Length(20),
         Constraint::Length(12),
@@ -125,11 +133,15 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
     let table = Table::new(rows, widths).header(header).column_spacing(2);
     frame.render_widget(table, layout[1]);
 
-    let footer = Paragraph::new(Line::from(" [q/Esc] exit ").dim());
+    let footer = Paragraph::new(Line::from(" ● bound   ○ free   [q/Esc] exit ").dim());
     frame.render_widget(footer, layout[2]);
 }
 
-fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static>> {
+fn collect_rows(
+    reg: &Registry,
+    project_filter: Option<&str>,
+    bound: &HashSet<u16>,
+) -> Vec<Row<'static>> {
     let mut projects: Vec<_> = match project_filter {
         None => reg.projects.iter().collect(),
         Some(name) => reg.projects.get_key_value(name).into_iter().collect(),
@@ -141,12 +153,23 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
         let mut svcs: Vec<_> = services.iter().collect();
         svcs.sort_by(|a, b| a.0.cmp(b.0));
         for (svc, entry) in svcs {
-            let svc_label = match service_icon(svc) {
+            let is_bound = bound.contains(&entry.port);
+            let status_style = if is_bound {
+                Style::new().fg(Color::Green)
+            } else {
+                Style::new().dim()
+            };
+            let name = match service_icon(svc) {
                 Some(icon) => format!("{icon} {svc}"),
                 None => svc.clone(),
             };
+            let label = Line::from(vec![
+                Span::styled(port_status_glyph(is_bound), status_style),
+                Span::raw(" "),
+                Span::styled(name, Style::new().bold()),
+            ]);
             rows.push(Row::new(vec![
-                Cell::from(svc_label).style(Style::new().bold()),
+                Cell::from(label),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
                 Cell::from(env_var_name(svc)).style(Style::new().fg(Color::Yellow)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
@@ -175,7 +198,8 @@ mod tests {
     #[test]
     fn collect_rows_empty_registry_yields_no_rows() {
         let reg = Registry::default();
-        assert!(collect_rows(&reg, None).is_empty());
+        let bound = HashSet::new();
+        assert!(collect_rows(&reg, None, &bound).is_empty());
     }
 
     #[test]
@@ -183,9 +207,10 @@ mod tests {
         let mut reg = Registry::default();
         insert(&mut reg, "a", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "b", "redis", 20_001, "2026-04-20");
-        assert_eq!(collect_rows(&reg, Some("a")).len(), 1);
-        assert_eq!(collect_rows(&reg, Some("b")).len(), 1);
-        assert_eq!(collect_rows(&reg, Some("nope")).len(), 0);
+        let bound = HashSet::new();
+        assert_eq!(collect_rows(&reg, Some("a"), &bound).len(), 1);
+        assert_eq!(collect_rows(&reg, Some("b"), &bound).len(), 1);
+        assert_eq!(collect_rows(&reg, Some("nope"), &bound).len(), 0);
     }
 
     #[test]
@@ -193,8 +218,9 @@ mod tests {
         let mut reg = Registry::default();
         insert(&mut reg, "a", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "b", "redis", 20_001, "2026-04-20");
+        let bound = HashSet::new();
         // One row per service, no separator rows — project is a column.
-        assert_eq!(collect_rows(&reg, None).len(), 2);
+        assert_eq!(collect_rows(&reg, None, &bound).len(), 2);
     }
 
     #[test]
@@ -202,7 +228,8 @@ mod tests {
         let mut reg = Registry::default();
         insert(&mut reg, "solo", "postgres", 20_000, "2026-04-20");
         insert(&mut reg, "solo", "redis", 20_001, "2026-04-20");
-        assert_eq!(collect_rows(&reg, None).len(), 2);
+        let bound = HashSet::new();
+        assert_eq!(collect_rows(&reg, None, &bound).len(), 2);
     }
 
     #[test]
