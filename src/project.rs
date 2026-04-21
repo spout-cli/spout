@@ -15,7 +15,7 @@
 //! single spout invocation.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -52,9 +52,33 @@ fn resolve_with_override(override_value: Option<String>) -> Result<String, Spout
 }
 
 fn current_marker_subdir() -> Option<String> {
-    let git_root = PathBuf::from(git_root_path()?);
     let cwd = env::current_dir().ok()?;
+    let git_root = find_git_root_by_walk(&cwd)?;
     compose_marker_subdir(&git_root, &cwd)
+}
+
+/// Walk up from `start` looking for a directory containing `.git`. Returns
+/// the first such directory. `.git` can be a directory (regular repo) or a
+/// file (worktree, submodule) — `Path::exists` matches both.
+///
+/// This is a local-only alternative to `git rev-parse --show-toplevel` used
+/// by the marker walk to avoid a second git shell-out on every invocation.
+/// The authoritative `git_root_path` (shell-out) is still used in the
+/// no-remote fallback where edge cases (custom GIT_DIR, bare repos) matter
+/// more than latency.
+fn find_git_root_by_walk(start: &Path) -> Option<PathBuf> {
+    let start = start.canonicalize().ok()?;
+    let mut cursor = start;
+    loop {
+        if cursor.join(".git").exists() {
+            return Some(cursor);
+        }
+        let parent = cursor.parent()?;
+        if parent == cursor {
+            return None;
+        }
+        cursor = parent.to_path_buf();
+    }
 }
 
 fn non_empty_trimmed(raw: &str) -> Option<String> {

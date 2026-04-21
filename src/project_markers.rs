@@ -41,7 +41,7 @@ pub fn compose_marker_subdir(git_root: &Path, cwd: &Path) -> Option<String> {
         }
         if has_compose_marker(&cursor) {
             let relative = cursor.strip_prefix(&git_root).ok()?;
-            return Some(path_to_posix(relative));
+            return path_to_posix(relative);
         }
         let parent = cursor.parent()?;
         cursor = parent.to_path_buf();
@@ -52,11 +52,13 @@ fn has_compose_marker(dir: &Path) -> bool {
     COMPOSE_MARKERS.iter().any(|name| dir.join(name).is_file())
 }
 
-fn path_to_posix(p: &Path) -> String {
-    p.components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .collect::<Vec<_>>()
-        .join("/")
+/// Join path components with `/`. Returns `None` if any component isn't
+/// valid UTF-8 — callers fall back to a non-marker identity rather than
+/// build a silently-truncated subdir (which could alias a real directory
+/// with fewer components).
+fn path_to_posix(p: &Path) -> Option<String> {
+    let parts: Option<Vec<&str>> = p.components().map(|c| c.as_os_str().to_str()).collect();
+    Some(parts?.join("/"))
 }
 
 #[cfg(test)]
