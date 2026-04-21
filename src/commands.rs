@@ -9,6 +9,7 @@ use crate::allocator;
 use crate::error::SpoutError;
 use crate::project;
 use crate::registry::{self, Entry, HistoryEntry, Registry};
+use crate::services::env_var_name;
 
 pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
     let project = project::current_project()?;
@@ -53,19 +54,24 @@ pub fn rm(registry_path: &Path, service: &str) -> Result<(), SpoutError> {
 
 /// List registered services.
 ///
+/// `project_filter` maps directly from the CLI flag shape:
+/// - `None` → show all projects
+/// - `Some(None)` → filter to the current project
+/// - `Some(Some(name))` → filter to the named project
+///
 /// Returns `Ok(Some(text))` for the plain-text path (piped stdout or
 /// `--no-tui`). Returns `Ok(None)` when the TUI has already rendered and
 /// exited, in which case the caller should not print anything further.
 pub fn ls(
     registry_path: &Path,
-    project_only: bool,
+    project_filter: Option<Option<String>>,
     no_tui: bool,
 ) -> Result<Option<String>, SpoutError> {
     let reg = registry::read(registry_path)?;
-    let project_name = if project_only {
-        Some(project::current_project()?)
-    } else {
-        None
+    let project_name = match project_filter {
+        None => None,
+        Some(None) => Some(project::current_project()?),
+        Some(Some(name)) => Some(name),
     };
 
     if std::io::stdout().is_terminal() && !no_tui {
@@ -78,6 +84,36 @@ pub fn ls(
         None => format_all(&reg),
     };
     Ok(Some(text))
+}
+
+/// Print `KEY=VALUE` port assignments for a project.
+///
+/// `project_filter` semantics match `ls`, except "no filter" also
+/// resolves to the current project (env has no "all projects" mode —
+/// env-var names would collide across projects). Returns `None` when
+/// the project has no registrations or doesn't exist, so callers can
+/// skip printing cleanly.
+pub fn env(
+    registry_path: &Path,
+    project_filter: Option<Option<String>>,
+) -> Result<Option<String>, SpoutError> {
+    let project = match project_filter {
+        Some(Some(name)) => name,
+        _ => project::current_project()?,
+    };
+    let reg = registry::read(registry_path)?;
+    let Some(services) = reg.projects.get(&project).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let mut sorted: Vec<_> = services.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(b.0));
+    Ok(Some(
+        sorted
+            .into_iter()
+            .map(|(svc, entry)| format!("{}={}", env_var_name(svc), entry.port))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ))
 }
 
 pub fn check(port: u16) -> bool {
@@ -233,7 +269,7 @@ mod tests {
     #[test]
     fn ls_empty_registry_is_descriptive() {
         let (_dir, path) = temp_registry();
-        let out = ls(&path, false, true).unwrap().unwrap();
+        let out = ls(&path, None, true).unwrap().unwrap();
         assert!(out.contains("no registrations"));
     }
 
@@ -242,9 +278,73 @@ mod tests {
         let (_dir, path) = temp_registry();
         alloc(&path, "postgres").unwrap();
         alloc(&path, "redis").unwrap();
-        let out = ls(&path, false, true).unwrap().unwrap();
+        let out = ls(&path, None, true).unwrap().unwrap();
         assert!(out.contains("postgres"));
         assert!(out.contains("redis"));
+    }
+
+    #[test]
+    fn ls_filters_to_named_project() {
+        let (_dir, path) = temp_registry();
+        registry::with_lock(&path, |r| {
+            r.set("alpha", "postgres", 20_000);
+            r.set("beta", "redis", 20_001);
+            Ok(())
+        })
+        .unwrap();
+        let out = ls(&path, Some(Some("alpha".to_owned())), true)
+            .unwrap()
+            .unwrap();
+        assert!(out.contains("alpha"));
+        assert!(out.contains("postgres"));
+        assert!(!out.contains("redis"));
+    }
+
+    #[test]
+    fn env_unknown_project_returns_none() {
+        let (_dir, path) = temp_registry();
+        assert!(env(&path, Some(Some("never-existed".to_owned())))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn env_named_project_emits_sorted_key_value_lines() {
+        let (_dir, path) = temp_registry();
+        registry::with_lock(&path, |r| {
+            r.set("myproj", "redis", 20_001);
+            r.set("myproj", "postgres", 20_000);
+            r.set("myproj", "mailpit-smtp", 20_002);
+            Ok(())
+        })
+        .unwrap();
+        let out = env(&path, Some(Some("myproj".to_owned())))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            out,
+            "MAILPIT_SMTP_PORT=20002\nPOSTGRES_PORT=20000\nREDIS_PORT=20001"
+        );
+    }
+
+    #[test]
+    fn env_current_project_after_alloc_contains_the_service() {
+        let (_dir, path) = temp_registry();
+        let port = alloc(&path, "postgres").unwrap();
+        let out = env(&path, None).unwrap().unwrap();
+        assert!(out.contains(&format!("POSTGRES_PORT={port}")));
+    }
+
+    #[test]
+    fn env_named_project_with_no_services_returns_none() {
+        let (_dir, path) = temp_registry();
+        registry::with_lock(&path, |r| {
+            r.set("proj", "svc", 20_000);
+            r.remove("proj", "svc", "test").unwrap();
+            Ok(())
+        })
+        .unwrap();
+        assert!(env(&path, Some(Some("proj".to_owned()))).unwrap().is_none());
     }
 
     #[test]
