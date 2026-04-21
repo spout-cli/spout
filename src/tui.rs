@@ -27,7 +27,7 @@ use ratatui::{
 
 use crate::error::SpoutError;
 use crate::registry::Registry;
-use crate::services::env_var_name;
+use crate::services::{env_var_name, service_icon};
 
 /// Render the registry in a full-screen TUI. Blocks until the user exits.
 /// `project_filter = Some(name)` shows only that project's services;
@@ -146,8 +146,12 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
         svcs.sort_by(|a, b| a.0.cmp(b.0));
         for (svc, entry) in svcs {
             let indent = if multi_project { "  " } else { "" };
+            let svc_label = match service_icon(svc) {
+                Some(icon) => format!("{indent}{icon} {svc}"),
+                None => format!("{indent}{svc}"),
+            };
             rows.push(Row::new(vec![
-                Cell::from(format!("{indent}{svc}")).style(Style::new().bold()),
+                Cell::from(svc_label).style(Style::new().bold()),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
                 Cell::from(env_var_name(svc)).style(Style::new().dim()),
