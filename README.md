@@ -138,17 +138,25 @@ spout alloc postgres      # registered under the project's git remote identity
 
 #### Monorepos
 
-If you work in a monorepo, every subdirectory shares the same git remote — so `apps/web` and `apps/api` would silently land on the same registry slot. Override the project name per subdirectory with `SPOUT_PROJECT`:
+In a monorepo, spout auto-detects subprojects by looking for a `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, or `compose.yaml` file. If it finds one in an ancestor directory of your CWD (below the git root), that ancestor's path becomes part of the project identity:
+
+```
+~/work/my-monorepo/apps/web/docker-compose.yml  →  github.com/acme/my-monorepo/apps/web
+~/work/my-monorepo/apps/api/compose.yaml        →  github.com/acme/my-monorepo/apps/api
+~/work/my-monorepo/docker-compose.yml           →  github.com/acme/my-monorepo  (root marker adds nothing)
+~/work/my-monorepo/                             →  github.com/acme/my-monorepo  (no markers)
+```
+
+Nearest marker wins — a `docker-compose.yml` at `apps/web` wins over one at the repo root. No configuration needed.
+
+If the auto-detect gets it wrong for your layout, override it with `SPOUT_PROJECT`:
 
 ```bash
 # apps/web/.envrc  (direnv)
 export SPOUT_PROJECT="my-monorepo/web"
-
-# apps/api/.envrc
-export SPOUT_PROJECT="my-monorepo/api"
 ```
 
-Unset or empty `SPOUT_PROJECT` falls through to the default layered resolution, so non-monorepo users never need to touch this.
+Unset or empty `SPOUT_PROJECT` falls through to auto-detect, which falls through to today's git-remote / git-root / CWD layering.
 
 ### The mutation boundary
 
