@@ -36,7 +36,7 @@ fn resolve() -> Result<String, SpoutError> {
 }
 
 fn resolve_with_override(override_value: Option<String>) -> Result<String, SpoutError> {
-    if let Some(explicit) = override_value.and_then(non_empty_trimmed) {
+    if let Some(explicit) = override_value.as_deref().and_then(non_empty_trimmed) {
         return Ok(explicit);
     }
     if let Some(identity) = git_remote_identity() {
@@ -48,7 +48,7 @@ fn resolve_with_override(override_value: Option<String>) -> Result<String, Spout
     cwd_path()
 }
 
-fn non_empty_trimmed(raw: String) -> Option<String> {
+fn non_empty_trimmed(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         None
@@ -264,15 +264,16 @@ mod tests {
 
     #[test]
     fn resolve_with_override_falls_through_on_empty_string() {
-        let id = resolve_with_override(Some(String::new())).unwrap();
-        // Falls through to git/CWD logic — value depends on env but must be non-empty.
-        assert!(!id.is_empty());
+        let baseline = resolve_with_override(None).unwrap();
+        let with_empty = resolve_with_override(Some(String::new())).unwrap();
+        assert_eq!(with_empty, baseline);
     }
 
     #[test]
     fn resolve_with_override_falls_through_on_whitespace_only() {
-        let id = resolve_with_override(Some("   ".to_owned())).unwrap();
-        assert!(!id.is_empty());
+        let baseline = resolve_with_override(None).unwrap();
+        let with_whitespace = resolve_with_override(Some("   ".to_owned())).unwrap();
+        assert_eq!(with_whitespace, baseline);
     }
 
     #[test]
