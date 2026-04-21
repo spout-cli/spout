@@ -90,3 +90,101 @@ Auto-detect via marker walk within the git worktree, identity composed as `{git-
 6. CHANGELOG entry under Unreleased / Added.
 
 One logical change → one commit (`feat(project): SPOUT_PROJECT env-var override for monorepo escape hatch`). Docs in a separate commit.
+
+---
+
+# Stage 3b — Nearest-marker auto-detect (addendum)
+
+Added after 3a shipped. 3b removes the "user has to remember to set `SPOUT_PROJECT`" footgun by auto-detecting subproject boundaries inside a git worktree.
+
+## The rule
+
+When git-remote identity is available, walk up from CWD toward the git root. If an ancestor directory (strictly below git root) contains a compose marker, append its path-relative-to-git-root to the remote identity.
+
+- `~/work/my-monorepo/apps/web/` has `docker-compose.yml`, CWD inside it → `github.com/acme/my-monorepo/apps/web`
+- `~/work/my-monorepo/apps/api/` has `docker-compose.yml`, CWD inside it → `github.com/acme/my-monorepo/apps/api`
+- `~/work/my-monorepo/` has `docker-compose.yml` at the root (no ancestor match below root) → `github.com/acme/my-monorepo` (today's behavior, unchanged)
+- `~/work/solo-repo/` with no compose marker anywhere → `github.com/acme/solo-repo` (today's behavior, unchanged)
+
+`SPOUT_PROJECT` wins over the marker walk (Stage 3a's contract holds — it's the user's escape hatch when the walk gets it wrong).
+
+## Marker set — narrow on purpose
+
+Only the four forms Docker Compose itself recognises:
+
+- `docker-compose.yml`
+- `docker-compose.yaml`
+- `compose.yml`
+- `compose.yaml`
+
+Language markers (`package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`) are tempting but introduce real false positives — nested Cargo workspace members aren't independent projects, nested `package.json` files in a pnpm workspace aren't either. Compose files uniquely say "this directory deploys a set of services independently", which is exactly spout's mental model. Narrow is the right default; if demand for language-marker support appears, it's a future stage.
+
+## Why nearest wins (not root-first)
+
+The rejected precedence in the user's original proposal put `.git` first, which would have defeated the fix — a monorepo has one `.git` at the root, so every subdir would resolve to it. The fix inverts: walk up from CWD, take the first compose marker we find, never past git root. So an `apps/web/docker-compose.yml` wins over a root-level `docker-compose.yml` even though both exist.
+
+## Composition boundaries
+
+- If marker-containing dir equals git root: return no subdir (the marker adds no information beyond what git remote already provides). Keeps today's behavior for single-project repos with a root compose file.
+- If marker-containing dir is a strict ancestor of CWD (or CWD itself) below root: return its path-relative-to-root in POSIX form (forward slashes).
+- If no marker anywhere between CWD and git root: fall through unchanged.
+
+## Module structure & line budget
+
+`src/project.rs` is 284 lines at HEAD. The marker walk (helper + tests) is ~100 new lines. 284 + 100 ≈ 384 — under the 400-line cap, but tight. Decision: keep in `project.rs` for now, and if a Stage 3c ever needs to grow it further, split into `project/mod.rs` + `project/markers.rs`.
+
+## Testability
+
+`compose_marker_subdir(git_root: &Path, cwd: &Path) -> Option<String>` is a pure function on two paths. Tests build temp directory layouts with `tempfile::TempDir` and call it directly — no env manipulation, no `OnceLock` interaction.
+
+Test matrix (target ~8 tests):
+
+1. No marker anywhere between CWD and root → `None`
+2. Marker at git root only, CWD = root → `None` (root marker doesn't add info)
+3. Marker at git root only, CWD = subdir without marker → `None`
+4. Marker at `<root>/apps/web`, CWD = `<root>/apps/web` → `Some("apps/web")`
+5. Marker at `<root>/apps/web`, CWD = `<root>/apps/web/cmd/server` → `Some("apps/web")` (walks up)
+6. Marker at both `<root>/docker-compose.yml` and `<root>/apps/web/docker-compose.yml`, CWD = `<root>/apps/web/cmd` → `Some("apps/web")` (nearest wins)
+7. Each of the four compose filename variants is detected (parameterised / four small tests)
+8. Directory (not file) matching a marker name at `<root>/apps/web/docker-compose.yml/` → does not match (we want files)
+
+Integration test: a new `resolve_with_override_appends_marker_subdir` that synthesises a fake git root + marker path via the pure helper and confirms composition into the final identity string.
+
+## What "done" looks like
+
+- [ ] `~/work/repo/apps/web` with `docker-compose.yml` → identity ends in `/apps/web`
+- [ ] `~/work/repo/apps/api` with `docker-compose.yml` → identity ends in `/apps/api` (distinct from web)
+- [ ] `~/work/repo/` with root `docker-compose.yml` → identity unchanged from today
+- [ ] `~/work/repo/` with no compose file anywhere → identity unchanged from today
+- [ ] `SPOUT_PROJECT=explicit` set → marker walk is skipped entirely
+- [ ] `cargo fmt --all -- --check` / `cargo clippy --all-targets -- -D warnings` clean
+- [ ] `cargo test` — all existing tests plus new ones pass
+- [ ] `wc -l src/project.rs` under 400
+- [ ] README "Monorepos" subsection updated to mention auto-detect
+- [ ] CHANGELOG entry under Unreleased / Added
+- [ ] `docs/planning/03-learning.md` written (covers both 3a and 3b)
+
+## Out of scope
+
+- Language markers (`package.json`, `Cargo.toml`, etc.)
+- Opt-out env var (`SPOUT_PROJECT` is the opt-out — setting it bypasses the walk entirely)
+- Walking beyond the git root (the git identity already disambiguates cross-repo; we don't need to)
+- Non-git contexts (no git → no remote identity to append to → no-op)
+
+## Risks and things to watch
+
+- **Canonicalisation on macOS `/tmp` symlinks.** Tests using `TempDir` on macOS run under `/var/folders/...` but `env::current_dir()` may return `/private/var/...`. The pure `compose_marker_subdir` canonicalises both inputs before `strip_prefix`, which is required for reliability.
+- **Windows path separators.** Spout doesn't support Windows (WSL is the recommendation). `path_to_posix` uses `/` explicitly. Not an issue for v1.
+- **Cache interaction.** Identity is still computed once per process via `OnceLock`. The marker walk is ~4 `metadata` calls max per level — microseconds. Absorbed by the cache.
+- **Behavioural change for existing users of root-compose repos.** No change — root-only marker returns `None` so the identity is unchanged. Verified by test case 2 + 3.
+
+## Build order (3b)
+
+1. Write tests for `compose_marker_subdir` (TDD).
+2. Implement `compose_marker_subdir` + `has_compose_marker` + `COMPOSE_MARKERS` constant.
+3. Add orchestration in `resolve_with_override` — between the override check and the plain git-remote fallthrough.
+4. Update module doc to list marker walk as layer 0.5.
+5. README update — swap the manual-SPOUT_PROJECT-for-monorepos paragraph for "we auto-detect; here's the escape hatch if needed".
+6. CHANGELOG entry.
+7. Write `03-learning.md` covering both 3a and 3b.
+
