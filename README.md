@@ -231,7 +231,7 @@ This is a permanent design commitment, not a "not yet."
 - macOS or Linux
 - Docker optional but likely why you're here
 
-Windows is not supported in v1.
+Windows is not supported natively. **Windows users: install and run spout inside WSL2.** It's Linux underneath, so spout works exactly as it does on native Linux — which covers the overwhelming majority of Windows-based Docker development in practice.
 
 ---
 
