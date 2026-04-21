@@ -1,8 +1,11 @@
 //! Project identity inference.
 //!
 //! Layered — first match wins:
-//! 1. `git config --get remote.origin.url`, parsed to `host/owner/repo`.
-//!    Stable across filesystem moves.
+//! 0. `SPOUT_PROJECT` env var, trimmed. Escape hatch for monorepos and
+//!    anywhere the auto-detect gives the wrong answer.
+//! 1. Git remote identity, optionally suffixed with the nearest
+//!    compose-marker subdirectory below the git root (auto-detect for
+//!    monorepo subprojects — see `compose_marker_subdir`).
 //! 2. `git rev-parse --show-toplevel` — git root absolute path. Used when
 //!    the repo has no remote.
 //! 3. Absolute CWD — when there's no git at all, or git isn't installed.
@@ -12,10 +15,14 @@
 //! single spout invocation.
 
 use std::env;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::error::SpoutError;
+use crate::project_markers::compose_marker_subdir;
+
+const SPOUT_PROJECT_ENV: &str = "SPOUT_PROJECT";
 
 pub fn current_project() -> Result<String, SpoutError> {
     static CACHE: OnceLock<String> = OnceLock::new();
@@ -28,13 +35,59 @@ pub fn current_project() -> Result<String, SpoutError> {
 }
 
 fn resolve() -> Result<String, SpoutError> {
-    if let Some(identity) = git_remote_identity() {
-        return Ok(identity);
+    resolve_with_override(env::var(SPOUT_PROJECT_ENV).ok())
+}
+
+fn resolve_with_override(override_value: Option<String>) -> Result<String, SpoutError> {
+    if let Some(explicit) = override_value.as_deref().and_then(non_empty_trimmed) {
+        return Ok(explicit);
     }
-    if let Some(path) = git_root_path() {
-        return Ok(path);
+    if let Some(base) = git_remote_identity().or_else(git_root_path) {
+        if let Some(subdir) = current_marker_subdir() {
+            return Ok(format!("{base}/{subdir}"));
+        }
+        return Ok(base);
     }
     cwd_path()
+}
+
+fn current_marker_subdir() -> Option<String> {
+    let cwd = env::current_dir().ok()?;
+    let git_root = find_git_root_by_walk(&cwd)?;
+    compose_marker_subdir(&git_root, &cwd)
+}
+
+/// Walk up from `start` looking for a directory containing `.git`. Returns
+/// the first such directory. `.git` can be a directory (regular repo) or a
+/// file (worktree, submodule) — `Path::exists` matches both.
+///
+/// This is a local-only alternative to `git rev-parse --show-toplevel` used
+/// by the marker walk to avoid a second git shell-out on every invocation.
+/// The authoritative `git_root_path` (shell-out) is still used in the
+/// no-remote fallback where edge cases (custom GIT_DIR, bare repos) matter
+/// more than latency.
+fn find_git_root_by_walk(start: &Path) -> Option<PathBuf> {
+    let start = start.canonicalize().ok()?;
+    let mut cursor = start;
+    loop {
+        if cursor.join(".git").exists() {
+            return Some(cursor);
+        }
+        let parent = cursor.parent()?;
+        if parent == cursor {
+            return None;
+        }
+        cursor = parent.to_path_buf();
+    }
+}
+
+fn non_empty_trimmed(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 fn git_remote_identity() -> Option<String> {
@@ -228,5 +281,37 @@ mod tests {
         // whether an origin is configured, and the CI environment.
         let id = current_project().unwrap();
         assert!(!id.is_empty(), "current_project() returned empty string");
+    }
+
+    #[test]
+    fn resolve_with_override_honours_explicit_name() {
+        let id = resolve_with_override(Some("my-monorepo/web".to_owned())).unwrap();
+        assert_eq!(id, "my-monorepo/web");
+    }
+
+    #[test]
+    fn resolve_with_override_trims_whitespace() {
+        let id = resolve_with_override(Some("  custom  ".to_owned())).unwrap();
+        assert_eq!(id, "custom");
+    }
+
+    #[test]
+    fn resolve_with_override_falls_through_on_empty_string() {
+        let baseline = resolve_with_override(None).unwrap();
+        let with_empty = resolve_with_override(Some(String::new())).unwrap();
+        assert_eq!(with_empty, baseline);
+    }
+
+    #[test]
+    fn resolve_with_override_falls_through_on_whitespace_only() {
+        let baseline = resolve_with_override(None).unwrap();
+        let with_whitespace = resolve_with_override(Some("   ".to_owned())).unwrap();
+        assert_eq!(with_whitespace, baseline);
+    }
+
+    #[test]
+    fn resolve_with_override_falls_through_on_none() {
+        let id = resolve_with_override(None).unwrap();
+        assert!(!id.is_empty());
     }
 }

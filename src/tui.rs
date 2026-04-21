@@ -19,7 +19,7 @@ use ratatui::{
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
     layout::{Constraint, Layout},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     text::Line,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame, Terminal,
@@ -27,7 +27,7 @@ use ratatui::{
 
 use crate::error::SpoutError;
 use crate::registry::Registry;
-use crate::services::env_var_name;
+use crate::services::{env_var_name, service_icon};
 
 /// Render the registry in a full-screen TUI. Blocks until the user exits.
 /// `project_filter = Some(name)` shows only that project's services;
@@ -102,7 +102,7 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
     let title_text = project_filter
         .map(str::to_owned)
         .unwrap_or_else(|| "all projects".to_owned());
-    let title = Paragraph::new(Line::from(format!(" spout — {title_text} ")).bold())
+    let title = Paragraph::new(Line::from(format!(" 💧 spout — {title_text} ")).bold())
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(title, layout[0]);
 
@@ -139,18 +139,22 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
     for (project, services) in projects {
         if multi_project {
             rows.push(Row::new(vec![
-                Cell::from(format!("── {project}")).style(Style::new().bold().italic())
+                Cell::from(format!("● {project}")).style(Style::new().bold().fg(Color::Green))
             ]));
         }
         let mut svcs: Vec<_> = services.iter().collect();
         svcs.sort_by(|a, b| a.0.cmp(b.0));
         for (svc, entry) in svcs {
             let indent = if multi_project { "  " } else { "" };
+            let svc_label = match service_icon(svc) {
+                Some(icon) => format!("{indent}{icon} {svc}"),
+                None => format!("{indent}{svc}"),
+            };
             rows.push(Row::new(vec![
-                Cell::from(format!("{indent}{svc}")),
-                Cell::from(entry.port.to_string()),
-                Cell::from(entry.allocated.clone()),
-                Cell::from(env_var_name(svc)),
+                Cell::from(svc_label).style(Style::new().bold()),
+                Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
+                Cell::from(entry.allocated.clone()).style(Style::new().dim()),
+                Cell::from(env_var_name(svc)).style(Style::new().dim()),
             ]));
         }
     }

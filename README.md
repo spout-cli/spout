@@ -93,27 +93,74 @@ Elvish and PowerShell are also supported via `spout completions elvish` and `spo
 ### Core commands
 
 ```bash
-spout get <service>       # read registered port              [READ ONLY]
-spout alloc <service>     # register new port if needed       [MUTATES]
-spout set <service> <port>  # manually register a port        [MUTATES]
-spout rm <service>        # remove a registration             [MUTATES]
-spout ls                  # list all projects
-spout ls --project        # list only the current project
-spout check <port>        # exit 0 if free, 1 if taken
+spout get <service>         # read registered port              [READ ONLY]
+spout alloc <service>       # register new port if needed       [MUTATES]
+spout set <service> <port>  # manually register a port          [MUTATES]
+spout rm <service>          # remove a registration             [MUTATES]
+spout ls                    # list all projects                 [READ ONLY]
+spout ls --project          # list only the current project     [READ ONLY]
+spout check <port>          # exit 0 if free, 1 if taken        [READ ONLY]
+spout whois <port>          # which project/service owns a port [READ ONLY]
+spout whois <port> --history  # include released ports          [READ ONLY]
 ```
+
+### Listing services
+
+In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — columns for service, port, allocation date, and `$ENV_VAR` name. Press `q`, `Esc`, or `Ctrl-C` to exit.
+
+When stdout is piped, redirected, or you pass `--no-tui`, the command emits plain text instead. Scripts, Makefiles, and AI agents always see the plain-text path, so nothing changes for automation.
+
+```bash
+spout ls                    # interactive viewer in a terminal
+spout ls --no-tui           # plain text, even in a terminal
+spout ls | cat              # plain text (pipe → no TTY)
+```
+
+### Personalizing the viewer
+
+You can prefix service names with an icon of your choice via `SPOUT_ICONS`:
+
+```bash
+export SPOUT_ICONS='postgres=🐘,redis=🔴,api=🌐,mailpit=📨'
+spout ls
+```
+
+spout ships no built-in mapping — names are yours to define. The variable is read once per invocation; drop it in your shell rc if you want it everywhere. It affects only the terminal viewer; `--no-tui` and piped output are unchanged, so scripts and CI see the same plain text either way.
 
 ### Project name
 
-spout uses your current working directory as the project name, matching Docker Compose's convention. No configuration required.
+spout infers project identity from your git remote, falling back to your git root, and finally to your absolute working directory. Two projects with the same directory name don't collide.
 
 ```bash
 cd /projects/tyfi
-spout alloc postgres      # registered under project "tyfi"
+spout alloc postgres      # registered under the project's git remote identity
 ```
+
+#### Monorepos
+
+In a monorepo, spout auto-detects subprojects by looking for a `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, or `compose.yaml` file. If it finds one in an ancestor directory of your CWD (below the git root), that ancestor's path becomes part of the project identity:
+
+```
+~/work/my-monorepo/apps/web/docker-compose.yml  →  github.com/acme/my-monorepo/apps/web
+~/work/my-monorepo/apps/api/compose.yaml        →  github.com/acme/my-monorepo/apps/api
+~/work/my-monorepo/docker-compose.yml           →  github.com/acme/my-monorepo  (root marker adds nothing)
+~/work/my-monorepo/                             →  github.com/acme/my-monorepo  (no markers)
+```
+
+Nearest marker wins — a `docker-compose.yml` at `apps/web` wins over one at the repo root. No configuration needed.
+
+If the auto-detect gets it wrong for your layout, override it with `SPOUT_PROJECT`:
+
+```bash
+# apps/web/.envrc  (direnv)
+export SPOUT_PROJECT="my-monorepo/web"
+```
+
+Unset or empty `SPOUT_PROJECT` falls through to auto-detect, which falls through to today's git-remote / git-root / CWD layering.
 
 ### The mutation boundary
 
-`get`, `ls`, and `check` never touch the registry. You can call them speculatively from scripts or agents without side effects.
+`get`, `ls`, `check`, `whois`, and `completions` never touch the registry. You can call them speculatively from scripts or agents without side effects.
 
 `alloc`, `set`, and `rm` mutate the registry and require a file lock. Call them intentionally.
 
@@ -217,7 +264,7 @@ This is a permanent design commitment, not a "not yet."
 - macOS or Linux
 - Docker optional but likely why you're here
 
-Windows is not supported in v1.
+Windows is not supported natively. **Windows users: install and run spout inside WSL2.** It's Linux underneath, so spout works exactly as it does on native Linux — which covers the overwhelming majority of Windows-based Docker development in practice.
 
 ---
 

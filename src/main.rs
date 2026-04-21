@@ -4,6 +4,7 @@ mod commands;
 mod date;
 mod error;
 mod project;
+mod project_markers;
 mod registry;
 mod services;
 mod tui;
