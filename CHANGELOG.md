@@ -13,5 +13,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - TUI viewer now ships with a droplet in the title, a cyan port column, dim metadata columns, and a green status-dot on the project separator.
 - `SPOUT_ICONS` env var — optional `service=icon,…` map that prefixes service names with a user-chosen glyph in the TUI. Spout ships no built-in mapping. Plain-text output (`--no-tui` and pipes) is unchanged.
 - `SPOUT_PROJECT` env var — monorepo escape hatch. When set, overrides the git-remote/git-root/CWD layered project identity. Whitespace is trimmed; empty or unset falls through to the default. Intended for per-subdirectory use via direnv, mise, or shell rc.
+- Monorepo auto-detect: `spout` now walks up from CWD toward the git root, and if it finds a `docker-compose.yml` / `docker-compose.yaml` / `compose.yml` / `compose.yaml` in an ancestor directory, appends that directory's path-relative-to-git-root to the project identity. Nearest marker wins. Repos without a compose file — or with one only at the git root — behave identically to before.
 
 [Unreleased]: https://github.com/spout-cli/spout/compare/HEAD...HEAD
