@@ -19,7 +19,7 @@ use ratatui::{
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
     layout::{Constraint, Layout},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     text::Line,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame, Terminal,
@@ -102,7 +102,7 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
     let title_text = project_filter
         .map(str::to_owned)
         .unwrap_or_else(|| "all projects".to_owned());
-    let title = Paragraph::new(Line::from(format!(" spout — {title_text} ")).bold())
+    let title = Paragraph::new(Line::from(format!(" 💧 spout — {title_text} ")).bold())
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(title, layout[0]);
 
@@ -139,7 +139,7 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
     for (project, services) in projects {
         if multi_project {
             rows.push(Row::new(vec![
-                Cell::from(format!("── {project}")).style(Style::new().bold().italic())
+                Cell::from(format!("● {project}")).style(Style::new().bold().fg(Color::Green))
             ]));
         }
         let mut svcs: Vec<_> = services.iter().collect();
@@ -147,10 +147,10 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
         for (svc, entry) in svcs {
             let indent = if multi_project { "  " } else { "" };
             rows.push(Row::new(vec![
-                Cell::from(format!("{indent}{svc}")),
-                Cell::from(entry.port.to_string()),
-                Cell::from(entry.allocated.clone()),
-                Cell::from(env_var_name(svc)),
+                Cell::from(format!("{indent}{svc}")).style(Style::new().bold()),
+                Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
+                Cell::from(entry.allocated.clone()).style(Style::new().dim()),
+                Cell::from(env_var_name(svc)).style(Style::new().dim()),
             ]));
         }
     }
