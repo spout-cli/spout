@@ -129,12 +129,26 @@ spout ships no built-in mapping — names are yours to define. The variable is r
 
 ### Project name
 
-spout uses your current working directory as the project name, matching Docker Compose's convention. No configuration required.
+spout infers project identity from your git remote, falling back to your git root, and finally to your absolute working directory. Two projects with the same directory name don't collide.
 
 ```bash
 cd /projects/tyfi
-spout alloc postgres      # registered under project "tyfi"
+spout alloc postgres      # registered under the project's git remote identity
 ```
+
+#### Monorepos
+
+If you work in a monorepo, every subdirectory shares the same git remote — so `apps/web` and `apps/api` would silently land on the same registry slot. Override the project name per subdirectory with `SPOUT_PROJECT`:
+
+```bash
+# apps/web/.envrc  (direnv)
+export SPOUT_PROJECT="my-monorepo/web"
+
+# apps/api/.envrc
+export SPOUT_PROJECT="my-monorepo/api"
+```
+
+Unset or empty `SPOUT_PROJECT` falls through to the default layered resolution, so non-monorepo users never need to touch this.
 
 ### The mutation boundary
 
