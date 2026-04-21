@@ -64,6 +64,11 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 println!("{out}");
             }
         }
+        Commands::Env { project } => {
+            if let Some(out) = commands::env(&reg_path, project)? {
+                println!("{out}");
+            }
+        }
         Commands::Check { port } => {
             if !commands::check(port) {
                 exit(1);

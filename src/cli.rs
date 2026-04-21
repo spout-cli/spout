@@ -34,13 +34,20 @@ pub enum Commands {
 
     /// List all registrations [READ ONLY]
     Ls {
-        /// Filter to the current project only
-        #[arg(long)]
-        project: bool,
+        /// Filter to a project. With no value, uses the current project.
+        #[arg(long, value_name = "NAME", num_args = 0..=1)]
+        project: Option<Option<String>>,
 
         /// Force plain-text output even when stdout is a TTY
         #[arg(long)]
         no_tui: bool,
+    },
+
+    /// Print KEY=VALUE port assignments for a project [READ ONLY]
+    Env {
+        /// Project to print. Defaults to the current project.
+        #[arg(long, value_name = "NAME", num_args = 0..=1)]
+        project: Option<Option<String>>,
     },
 
     /// Check if a port is free on the OS (exit 0 free, 1 taken) [READ ONLY]
@@ -90,13 +97,31 @@ mod tests {
     }
 
     #[test]
-    fn parses_ls_project_flag() {
-        let cli = Cli::try_parse_from(["spout", "ls", "--project"]).unwrap();
+    fn parses_ls_bare() {
+        let cli = Cli::try_parse_from(["spout", "ls"]).unwrap();
         match cli.command {
             Commands::Ls { project, no_tui } => {
-                assert!(project);
+                assert_eq!(project, None);
                 assert!(!no_tui);
             }
+            other => panic!("expected Ls, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_ls_project_flag_without_value_means_current() {
+        let cli = Cli::try_parse_from(["spout", "ls", "--project"]).unwrap();
+        match cli.command {
+            Commands::Ls { project, .. } => assert_eq!(project, Some(None)),
+            other => panic!("expected Ls, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_ls_project_flag_with_name() {
+        let cli = Cli::try_parse_from(["spout", "ls", "--project", "foo"]).unwrap();
+        match cli.command {
+            Commands::Ls { project, .. } => assert_eq!(project, Some(Some("foo".to_owned()))),
             other => panic!("expected Ls, got {other:?}"),
         }
     }
@@ -106,10 +131,28 @@ mod tests {
         let cli = Cli::try_parse_from(["spout", "ls", "--no-tui"]).unwrap();
         match cli.command {
             Commands::Ls { project, no_tui } => {
-                assert!(!project);
+                assert_eq!(project, None);
                 assert!(no_tui);
             }
             other => panic!("expected Ls, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_env_bare_means_current_project() {
+        let cli = Cli::try_parse_from(["spout", "env"]).unwrap();
+        match cli.command {
+            Commands::Env { project } => assert_eq!(project, None),
+            other => panic!("expected Env, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_env_with_project_name() {
+        let cli = Cli::try_parse_from(["spout", "env", "--project", "foo"]).unwrap();
+        match cli.command {
+            Commands::Env { project } => assert_eq!(project, Some(Some("foo".to_owned()))),
+            other => panic!("expected Env, got {other:?}"),
         }
     }
 
