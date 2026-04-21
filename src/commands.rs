@@ -249,7 +249,6 @@ mod tests {
 
     #[test]
     fn check_returns_false_when_port_is_bound() {
-        // Deterministic direction: something is bound, check must report taken.
         use std::net::TcpListener;
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
