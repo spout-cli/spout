@@ -106,7 +106,7 @@ spout whois <port> --history  # include released ports          [READ ONLY]
 
 ### Listing services
 
-In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — columns for service, port, allocation date, and `$ENV_VAR` name. Press `q`, `Esc`, or `Ctrl-C` to exit.
+In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — columns for service, port, allocation date, and project. Press `q`, `Esc`, or `Ctrl-C` to exit.
 
 When stdout is piped, redirected, or you pass `--no-tui`, the command emits plain text instead. Scripts, Makefiles, and AI agents always see the plain-text path, so nothing changes for automation.
 
