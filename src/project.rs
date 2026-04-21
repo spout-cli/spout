@@ -2,9 +2,10 @@
 //!
 //! Layered — first match wins:
 //! 0. `SPOUT_PROJECT` env var, trimmed. Escape hatch for monorepos and
-//!    anywhere the git-remote heuristic gives the wrong answer.
-//! 1. `git config --get remote.origin.url`, parsed to `host/owner/repo`.
-//!    Stable across filesystem moves.
+//!    anywhere the auto-detect gives the wrong answer.
+//! 1. Git remote identity, optionally suffixed with the nearest
+//!    compose-marker subdirectory below the git root (auto-detect for
+//!    monorepo subprojects — see `compose_marker_subdir`).
 //! 2. `git rev-parse --show-toplevel` — git root absolute path. Used when
 //!    the repo has no remote.
 //! 3. Absolute CWD — when there's no git at all, or git isn't installed.
@@ -14,10 +15,12 @@
 //! single spout invocation.
 
 use std::env;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::error::SpoutError;
+use crate::project_markers::compose_marker_subdir;
 
 const SPOUT_PROJECT_ENV: &str = "SPOUT_PROJECT";
 
@@ -39,13 +42,19 @@ fn resolve_with_override(override_value: Option<String>) -> Result<String, Spout
     if let Some(explicit) = override_value.as_deref().and_then(non_empty_trimmed) {
         return Ok(explicit);
     }
-    if let Some(identity) = git_remote_identity() {
-        return Ok(identity);
-    }
-    if let Some(path) = git_root_path() {
-        return Ok(path);
+    if let Some(base) = git_remote_identity().or_else(git_root_path) {
+        if let Some(subdir) = current_marker_subdir() {
+            return Ok(format!("{base}/{subdir}"));
+        }
+        return Ok(base);
     }
     cwd_path()
+}
+
+fn current_marker_subdir() -> Option<String> {
+    let git_root = PathBuf::from(git_root_path()?);
+    let cwd = env::current_dir().ok()?;
+    compose_marker_subdir(&git_root, &cwd)
 }
 
 fn non_empty_trimmed(raw: &str) -> Option<String> {
