@@ -308,19 +308,9 @@ Platform: `flock` syscall on Linux/macOS. Windows is not a target for v1.
 
 ## 9. Env Var Naming
 
-When generating environment variable names from service names (for documentation and `spout ls` output):
+**Historical.** Spout used to generate `SERVICE_PORT`-style names (uppercase, hyphens → underscores, `_PORT` suffix) and surface them in the `spout ls` TUI. The column was dropped in favour of a `PROJECT` column — agents and humans reference ports via `spout get <service>`, not by looking up an env-var name in the viewer — and the generator helper went with it.
 
-**Rule:** Uppercase, hyphens to underscores, append `_PORT`.
-
-```
-postgres      → POSTGRES_PORT
-mailpit-smtp  → MAILPIT_SMTP_PORT
-worker-2      → WORKER_2_PORT
-```
-
-**Guard:** If the service name already ends in `port` (case-insensitive), do not append `_PORT`.
-
-This rule must be explicitly documented in `spout help` output and the README, because projects must match these names in their `.env.schema` files.
+The convention itself (`POSTGRES_PORT`, `REDIS_PORT`, etc.) is still what most projects use in their Makefiles, `.env` files, and varlock schemas. Spout no longer imposes it.
 
 ---
 

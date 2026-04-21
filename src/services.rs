@@ -1,4 +1,4 @@
-//! Service-name helpers used by the TUI.
+//! Service-name helper used by the TUI.
 //!
 //! `service_icon`: optional user-provided icon for a service, sourced
 //! from the `SPOUT_ICONS` env var. Spout itself ships no mapping — the
