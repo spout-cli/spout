@@ -116,6 +116,17 @@ spout ls --no-tui           # plain text, even in a terminal
 spout ls | cat              # plain text (pipe → no TTY)
 ```
 
+### Personalizing the viewer
+
+You can prefix service names with an icon of your choice via `SPOUT_ICONS`:
+
+```bash
+export SPOUT_ICONS='postgres=🐘,redis=🔴,api=🌐,mailpit=📨'
+spout ls
+```
+
+spout ships no built-in mapping — names are yours to define. The variable is read once per invocation; drop it in your shell rc if you want it everywhere. It affects only the terminal viewer; `--no-tui` and piped output are unchanged, so scripts and CI see the same plain text either way.
+
 ### Project name
 
 spout uses your current working directory as the project name, matching Docker Compose's convention. No configuration required.
