@@ -191,9 +191,6 @@ mod tests {
 
     #[test]
     fn probe_bound_ports_distinguishes_bound_from_free() {
-        // Bind one port to pin it, use the bound port's neighbour as a
-        // "probably-free" port. Both get registered; only the bound one
-        // should appear in the result.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let bound_port = listener.local_addr().unwrap().port();
         let free_port = bound_port.wrapping_sub(1).max(1024);
@@ -201,9 +198,9 @@ mod tests {
         reg.set("proj", "bound", bound_port);
         reg.set("proj", "free", free_port);
         let bound = probe_bound_ports(&reg);
-        assert!(bound.contains(&bound_port));
         // `free_port` might be bound by something else on the test host, so
-        // we can't assert it's excluded — but at minimum the bound one must
-        // be present, proving the fn can tell the two states apart.
+        // we only assert the one we pinned ourselves — enough to prove the
+        // fn reads OS state, not just the registry.
+        assert!(bound.contains(&bound_port));
     }
 }
