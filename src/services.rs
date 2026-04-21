@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+const SPOUT_ICONS_ENV: &str = "SPOUT_ICONS";
+
 pub fn env_var_name(service: &str) -> String {
     let normalised: String = service
         .chars()
@@ -28,14 +30,15 @@ pub fn env_var_name(service: &str) -> String {
 ///
 /// Reads `SPOUT_ICONS` once per process (env can't change mid-run) and
 /// caches the parsed map. Unset, empty, or all-malformed env → always
-/// returns `None`.
-pub fn service_icon(service: &str) -> Option<String> {
-    icons_map().get(service).cloned()
+/// returns `None`. The returned reference lives as long as the process;
+/// callers never need to clone.
+pub fn service_icon(service: &str) -> Option<&'static str> {
+    icons_map().get(service).map(String::as_str)
 }
 
 fn icons_map() -> &'static HashMap<String, String> {
     static CACHE: OnceLock<HashMap<String, String>> = OnceLock::new();
-    CACHE.get_or_init(|| parse_icons(&std::env::var("SPOUT_ICONS").unwrap_or_default()))
+    CACHE.get_or_init(|| parse_icons(&std::env::var(SPOUT_ICONS_ENV).unwrap_or_default()))
 }
 
 /// Parse a `service=icon,service=icon` string into a map.
