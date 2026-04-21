@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Toolchain + components come from rust-toolchain.toml.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+      - name: Enforce 400-line cap on src/
+        run: |
+          over=$(find src -name '*.rs' -type f -exec wc -l {} + | awk '$2 != "total" && $1 > 400 { print }')
+          if [ -n "$over" ]; then
+            echo "Files over the 400-line cap:"
+            echo "$over"
+            exit 1
+          fi

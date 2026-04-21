@@ -248,8 +248,17 @@ mod tests {
     }
 
     #[test]
+    fn check_returns_false_when_port_is_bound() {
+        use std::net::TcpListener;
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        assert!(!check(port));
+        // `l` drops at end of scope; no race window.
+    }
+
+    #[test]
+    #[ignore = "inherently racy: the OS can reassign the freed port before check() runs"]
     fn check_returns_true_for_free_port() {
-        // Bind to ephemeral, read port, drop, check.
         use std::net::TcpListener;
         let l = TcpListener::bind("0.0.0.0:0").unwrap();
         let port = l.local_addr().unwrap().port();

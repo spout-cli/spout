@@ -19,6 +19,8 @@ use crate::error::SpoutError;
 
 pub const CURRENT_VERSION: u32 = 1;
 
+const SPOUT_REGISTRY_ENV: &str = "SPOUT_REGISTRY";
+
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Registry {
     pub version: u32,
@@ -108,7 +110,7 @@ impl Registry {
 }
 
 pub fn registry_path() -> Result<PathBuf, SpoutError> {
-    if let Ok(path) = std::env::var("SPOUT_REGISTRY") {
+    if let Ok(path) = std::env::var(SPOUT_REGISTRY_ENV) {
         return Ok(PathBuf::from(path));
     }
     dirs::home_dir()
