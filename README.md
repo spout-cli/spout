@@ -93,13 +93,27 @@ Elvish and PowerShell are also supported via `spout completions elvish` and `spo
 ### Core commands
 
 ```bash
-spout get <service>       # read registered port              [READ ONLY]
-spout alloc <service>     # register new port if needed       [MUTATES]
-spout set <service> <port>  # manually register a port        [MUTATES]
-spout rm <service>        # remove a registration             [MUTATES]
-spout ls                  # list all projects
-spout ls --project        # list only the current project
-spout check <port>        # exit 0 if free, 1 if taken
+spout get <service>         # read registered port              [READ ONLY]
+spout alloc <service>       # register new port if needed       [MUTATES]
+spout set <service> <port>  # manually register a port          [MUTATES]
+spout rm <service>          # remove a registration             [MUTATES]
+spout ls                    # list all projects                 [READ ONLY]
+spout ls --project          # list only the current project     [READ ONLY]
+spout check <port>          # exit 0 if free, 1 if taken        [READ ONLY]
+spout whois <port>          # which project/service owns a port [READ ONLY]
+spout whois <port> --history  # include released ports          [READ ONLY]
+```
+
+### Listing services
+
+In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — columns for service, port, allocation date, and `$ENV_VAR` name. Press `q`, `Esc`, or `Ctrl-C` to exit.
+
+When stdout is piped, redirected, or you pass `--no-tui`, the command emits plain text instead. Scripts, Makefiles, and AI agents always see the plain-text path, so nothing changes for automation.
+
+```bash
+spout ls                    # interactive viewer in a terminal
+spout ls --no-tui           # plain text, even in a terminal
+spout ls | cat              # plain text (pipe → no TTY)
 ```
 
 ### Project name
@@ -113,7 +127,7 @@ spout alloc postgres      # registered under project "acme"
 
 ### The mutation boundary
 
-`get`, `ls`, and `check` never touch the registry. You can call them speculatively from scripts or agents without side effects.
+`get`, `ls`, `check`, `whois`, and `completions` never touch the registry. You can call them speculatively from scripts or agents without side effects.
 
 `alloc`, `set`, and `rm` mutate the registry and require a file lock. Call them intentionally.
 
