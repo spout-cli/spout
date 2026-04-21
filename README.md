@@ -12,22 +12,16 @@ brew install spout-cli/spout/spout
 
 # In any project directory
 cd your-project
-spout alloc postgres    # 5436 — registered, conflict-free, permanent
+spout alloc postgres    # 20000 — registered, conflict-free, permanent
 ```
 
-Use it in your Makefile:
+Use it from any shell:
 
-```makefile
-dev:
-	POSTGRES_PORT=$(shell spout get postgres) docker compose up -d
+```bash
+POSTGRES_PORT=$(spout get postgres) docker compose up -d
 ```
 
-Or in your `.env.schema` with [varlock](https://varlock.dev):
-
-```
-# @type=port
-POSTGRES_PORT=exec('spout get postgres')
-```
+Or wire it into whatever you already use — direnv, varlock, just, Make, or a one-time paste into `.env`. See [Integrations](#integrations) below.
 
 Done. Your port is yours, permanently, across every restart.
 
@@ -174,9 +168,15 @@ A single JSON file at `~/.spout.json`:
 {
   "version": 1,
   "projects": {
-    "acme": { "postgres": 5436, "api": 8081 },
-    "myproject": { "postgres": 5434, "redis": 6380 }
-  }
+    "acme": {
+      "postgres": { "port": 20000, "allocated": "2026-04-20" },
+      "api":      { "port": 20001, "allocated": "2026-04-20" }
+    },
+    "myproject": {
+      "postgres": { "port": 20002, "allocated": "2026-04-21" }
+    }
+  },
+  "history": []
 }
 ```
 
@@ -184,10 +184,12 @@ When you run `spout alloc postgres`, spout:
 
 1. Acquires a file lock on `~/.spout.lock`
 2. Reads the registry
-3. Walks forward from the service's default port (5432 for postgres)
-4. Skips ports claimed by other projects, or bound by the OS
+3. Walks 20000–32767 in order
+4. Skips ports claimed by other projects or bound by the OS
 5. Registers the first free port to your current project
 6. Writes the registry atomically and releases the lock
+
+Releasing a port (`spout rm`) appends to `history` rather than erasing it, so `spout whois <port> --history` can tell you what used to live there.
 
 That's the entire design. No surprises.
 
@@ -195,7 +197,29 @@ That's the entire design. No surprises.
 
 ## Integrations
 
-### With varlock
+spout's output is a port number on stdout. Anything that can read a shell env var or set one can consume it — that includes `docker compose`, which substitutes `${POSTGRES_PORT}` from the shell environment or an adjacent `.env` file. Pick whichever of the below matches your project; they're peers, not a ranked list.
+
+### Plain shell
+
+The lowest common denominator. Works everywhere.
+
+```bash
+POSTGRES_PORT=$(spout get postgres) docker compose up -d
+```
+
+### direnv
+
+Put this in `.envrc` at your project root, then `direnv allow`. Every shell you open in the project picks up the env; direnv unloads it when you `cd` out.
+
+```bash
+# .envrc
+export POSTGRES_PORT=$(spout get postgres)
+export REDIS_PORT=$(spout get redis)
+```
+
+### varlock
+
+Purpose-built for dynamic values in dotenv files.
 
 ```
 # .env.schema
@@ -204,24 +228,39 @@ POSTGRES_PORT=exec('spout get postgres')
 REDIS_PORT=exec('spout get redis')
 ```
 
-Varlock resolves these at runtime. spout knows nothing about varlock — the dependency runs one way.
+varlock resolves these at runtime. spout knows nothing about varlock — the dependency runs one way.
 
-### With Makefiles
+### just or Make
+
+For task-runner workflows:
 
 ```makefile
+# Makefile
 dev:
 	POSTGRES_PORT=$(shell spout get postgres) \
 	REDIS_PORT=$(shell spout get redis) \
 	docker compose up -d
 ```
 
-CLI assignment takes precedence over any `.env` file, so this always wins.
+```just
+# justfile
+dev:
+    POSTGRES_PORT=$(spout get postgres) REDIS_PORT=$(spout get redis) docker compose up -d
+```
 
-### With raw `.env` files
+CLI-assigned env wins over any `.env` file, so these always take precedence.
 
-Run `spout alloc <service>` once during project setup, then paste the number into your `.env` file. spout still prevents collisions — you just do the last mile manually.
+### Paste-once `.env`
 
-For reliable automation, use varlock or a Makefile.
+Leases are permanent, so for pure `.env` setups the simplest workflow is allocate once, paste, commit:
+
+```bash
+spout alloc postgres    # 20000
+spout alloc redis       # 20001
+# paste those numbers into .env
+```
+
+spout still prevents cross-project collisions — you just do the last mile manually, once per service.
 
 ---
 
