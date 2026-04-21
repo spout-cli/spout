@@ -122,10 +122,24 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>, bound: 
     frame.render_widget(title, layout[0]);
 
     let projects = sorted_projects(reg, project_filter);
-    render_body(frame, layout[1], &projects, bound);
+    match (project_filter, projects.as_slice()) {
+        (Some(_), [(_, services)]) => render_single_project(frame, layout[1], services, bound),
+        _ => render_body(frame, layout[1], &projects, bound),
+    }
 
     let footer = Paragraph::new(Line::from(" ● bound   ○ free   [q/Esc] exit ").dim());
     frame.render_widget(footer, layout[2]);
+}
+
+fn render_single_project(
+    frame: &mut Frame,
+    area: Rect,
+    services: &HashMap<String, Entry>,
+    bound: &HashSet<u16>,
+) {
+    let sections = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(area);
+    frame.render_widget(column_header_table(), sections[0]);
+    frame.render_widget(services_table(services, bound), sections[1]);
 }
 
 fn render_body(
