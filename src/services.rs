@@ -1,13 +1,36 @@
-//! Service-name helper used by the TUI.
+//! Service-name helpers used by the TUI.
 //!
-//! `service_icon`: optional user-provided icon for a service, sourced
-//! from the `SPOUT_ICONS` env var. Spout itself ships no mapping — the
-//! onus is on the user to define one (e.g. in their shell rc).
+//! - `env_var_name`: canonical `SERVICE_PORT`-style env var name for a
+//!   service. Surfaced in the TUI so users can copy it.
+//! - `service_icon`: optional user-provided icon for a service, sourced
+//!   from the `SPOUT_ICONS` env var. Spout itself ships no mapping — the
+//!   onus is on the user to define one (e.g. in their shell rc).
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 const SPOUT_ICONS_ENV: &str = "SPOUT_ICONS";
+
+/// Canonical env-var name for a service's port.
+///
+/// Uppercases the service name, converts hyphens to underscores, and
+/// appends `_PORT` unless the result already ends in `_PORT` or is
+/// bare `PORT`.
+pub fn env_var_name(service: &str) -> String {
+    let normalised: String = service
+        .chars()
+        .map(|c| match c {
+            '-' => '_',
+            c => c.to_ascii_uppercase(),
+        })
+        .collect();
+
+    if normalised.ends_with("_PORT") || normalised == "PORT" {
+        normalised
+    } else {
+        format!("{normalised}_PORT")
+    }
+}
 
 /// Look up the user-defined icon for `service`, if any.
 ///
@@ -55,6 +78,56 @@ fn parse_icons(src: &str) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn env_var_name_postgres_becomes_postgres_port() {
+        assert_eq!(env_var_name("postgres"), "POSTGRES_PORT");
+    }
+
+    #[test]
+    fn env_var_name_hyphen_becomes_underscore() {
+        assert_eq!(env_var_name("mailpit-smtp"), "MAILPIT_SMTP_PORT");
+    }
+
+    #[test]
+    fn env_var_name_preserves_digits() {
+        assert_eq!(env_var_name("worker-2"), "WORKER_2_PORT");
+    }
+
+    #[test]
+    fn env_var_name_already_uppercase_only_appends_suffix() {
+        assert_eq!(env_var_name("REDIS"), "REDIS_PORT");
+    }
+
+    #[test]
+    fn env_var_name_lowercase_port_suffix_is_not_double_appended() {
+        assert_eq!(env_var_name("my-port"), "MY_PORT");
+    }
+
+    #[test]
+    fn env_var_name_uppercase_port_suffix_is_not_double_appended() {
+        assert_eq!(env_var_name("MY_PORT"), "MY_PORT");
+    }
+
+    #[test]
+    fn env_var_name_bare_port_is_not_double_appended() {
+        assert_eq!(env_var_name("port"), "PORT");
+    }
+
+    #[test]
+    fn env_var_name_multiple_hyphens() {
+        assert_eq!(env_var_name("a-b-c"), "A_B_C_PORT");
+    }
+
+    #[test]
+    fn env_var_name_numeric_service_name() {
+        assert_eq!(env_var_name("123"), "123_PORT");
+    }
+
+    #[test]
+    fn env_var_name_empty_string_gets_port_suffix() {
+        assert_eq!(env_var_name(""), "_PORT");
+    }
 
     #[test]
     fn parse_icons_empty_string_is_empty_map() {

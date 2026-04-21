@@ -27,7 +27,7 @@ use ratatui::{
 
 use crate::error::SpoutError;
 use crate::registry::Registry;
-use crate::services::service_icon;
+use crate::services::{env_var_name, service_icon};
 
 /// Render the registry in a full-screen TUI. Blocks until the user exits.
 /// `project_filter = Some(name)` shows only that project's services;
@@ -108,14 +108,16 @@ fn draw(frame: &mut Frame, reg: &Registry, project_filter: Option<&str>) {
 
     let rows = collect_rows(reg, project_filter);
     let widths = [
-        Constraint::Length(28),
+        Constraint::Length(24),
         Constraint::Length(7),
+        Constraint::Length(20),
         Constraint::Length(12),
-        Constraint::Min(25),
+        Constraint::Min(20),
     ];
     let header = Row::new(vec![
         Cell::from("SERVICE").style(Style::new().bold()),
         Cell::from("PORT").style(Style::new().bold()),
+        Cell::from("ENV VAR").style(Style::new().bold()),
         Cell::from("ALLOCATED").style(Style::new().bold()),
         Cell::from("PROJECT").style(Style::new().bold()),
     ])
@@ -146,6 +148,7 @@ fn collect_rows(reg: &Registry, project_filter: Option<&str>) -> Vec<Row<'static
             rows.push(Row::new(vec![
                 Cell::from(svc_label).style(Style::new().bold()),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
+                Cell::from(env_var_name(svc)).style(Style::new().fg(Color::Yellow)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
                 Cell::from(project.clone()).style(Style::new().dim()),
             ]));
