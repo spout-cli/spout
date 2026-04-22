@@ -80,6 +80,7 @@ The distinction exists so agents can probe the registry without accidental side 
 4  Registry version unsupported
 5  Port already claimed by another project
 6  Port already in use by OS
+7  I/O error (e.g., stdout or stdin closed mid-command)
 
 ## Integration with varlock
 

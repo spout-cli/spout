@@ -373,6 +373,7 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | 4    | Registry version unsupported           |
 | 5    | Port already registered to another project |
 | 6    | Port already in use by OS              |
+| 7    | I/O error (e.g., stdout or stdin closed mid-command) |
 
 ---
 

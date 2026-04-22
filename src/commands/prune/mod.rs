@@ -14,7 +14,7 @@ use crate::error::SpoutError;
 use crate::format;
 use crate::registry::{self, Registry};
 
-use scanner::{format_report, scan, Candidate, StaleReason};
+use scanner::{format_report, nothing_to_prune, scan, Candidate, StaleReason};
 
 #[derive(Debug, PartialEq)]
 enum Response {
@@ -30,10 +30,13 @@ pub fn run(path: &Path, older_than: u64, dry_run: bool, yes: bool) -> Result<Str
     let candidates = scan(&reg, older_than);
 
     if dry_run {
-        return Ok(format_report(&reg, &candidates));
+        return Ok(format_report(&reg, older_than, &candidates));
+    }
+    if candidates.is_empty() {
+        return Ok(nothing_to_prune(older_than));
     }
     if yes {
-        return bulk(path, older_than, &reg, &candidates);
+        return bulk(path, older_than, &candidates);
     }
     let (stdin, stdout) = (io::stdin(), io::stdout());
     interactive(
@@ -47,24 +50,33 @@ pub fn run(path: &Path, older_than: u64, dry_run: bool, yes: bool) -> Result<Str
     Ok(String::new())
 }
 
-fn bulk(
-    path: &Path,
-    older_than: u64,
-    reg: &Registry,
-    candidates: &[Candidate<'_>],
-) -> Result<String, SpoutError> {
-    if candidates.is_empty() {
-        return Ok(format_report(reg, candidates));
-    }
+// Candidates must be non-empty — caller guarantees via `run`'s empty-check.
+fn bulk(path: &Path, older_than: u64, candidates: &[Candidate<'_>]) -> Result<String, SpoutError> {
+    let targets: Vec<(String, String, String)> = candidates
+        .iter()
+        .map(|c| {
+            (
+                c.project.to_owned(),
+                c.service.to_owned(),
+                reason_for(&c.reason, older_than),
+            )
+        })
+        .collect();
+    registry::with_lock(path, |r| {
+        for (project, service, reason) in &targets {
+            r.remove(project, service, reason);
+        }
+        Ok(())
+    })?;
     let mut out = String::new();
-    for c in candidates {
-        apply_remove(path, c, older_than)?;
-        out.push_str(&format!("  removed {}/{}.\n", c.project, c.service));
+    for (project, service, _) in &targets {
+        out.push_str(&format!("  removed {project}/{service}.\n"));
     }
-    out.push_str(&format!("\nDone: {} removed, 0 kept.", candidates.len()));
+    out.push_str(&done_line(targets.len(), 0));
     Ok(out)
 }
 
+// Candidates must be non-empty — caller guarantees via `run`'s empty-check.
 fn interactive(
     path: &Path,
     older_than: u64,
@@ -73,10 +85,6 @@ fn interactive(
     stdin: &mut impl BufRead,
     stdout: &mut impl Write,
 ) -> Result<(), SpoutError> {
-    if candidates.is_empty() {
-        writeln!(stdout, "{}", format_report(reg, candidates)).map_err(io_err)?;
-        return Ok(());
-    }
     let bound = allocator::probe_bound_ports(reg);
     let mut yes_to_all = false;
     let (mut removed, mut kept) = (0usize, 0usize);
@@ -99,7 +107,7 @@ fn interactive(
             Response::Quit => break,
         }
     }
-    writeln!(stdout, "\nDone: {removed} removed, {kept} kept.").map_err(io_err)?;
+    writeln!(stdout, "{}", done_line(removed, kept)).map_err(io_err)?;
     Ok(())
 }
 
@@ -136,10 +144,7 @@ fn prompt(
 }
 
 fn apply_remove(path: &Path, c: &Candidate<'_>, older_than: u64) -> Result<(), SpoutError> {
-    let reason = match c.reason {
-        StaleReason::OlderThan(_) => format!("pruned: stale (older than {older_than}d)"),
-        StaleReason::PathMissing => "pruned: project path missing".to_owned(),
-    };
+    let reason = reason_for(&c.reason, older_than);
     let (project, service) = (c.project.to_owned(), c.service.to_owned());
     registry::with_lock(path, |r| {
         r.remove(&project, &service, &reason);
@@ -147,14 +152,25 @@ fn apply_remove(path: &Path, c: &Candidate<'_>, older_than: u64) -> Result<(), S
     })
 }
 
+fn reason_for(r: &StaleReason, older_than: u64) -> String {
+    match r {
+        StaleReason::OlderThan(_) => format!("pruned: stale (older than {older_than}d)"),
+        StaleReason::PathMissing => "pruned: project path missing".to_owned(),
+    }
+}
+
+fn done_line(removed: usize, kept: usize) -> String {
+    format!("\nDone: {removed} removed, {kept} kept.")
+}
+
 fn io_err(e: io::Error) -> SpoutError {
-    SpoutError::RegistryCorrupt(format!("prune I/O: {e}"))
+    SpoutError::Io(format!("prune: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::date;
+    use crate::date::{iso_days_ago, today_iso};
     use crate::protocol::Protocol;
     use crate::registry::Entry;
     use tempfile::TempDir;
@@ -179,12 +195,6 @@ mod tests {
     fn write_registry(path: &std::path::Path, reg: &Registry) {
         let json = serde_json::to_string(reg).unwrap();
         std::fs::write(path, json).unwrap();
-    }
-
-    fn iso_days_ago(n: i64) -> String {
-        let today_days = date::days_between("1970-01-01", &date::today_iso()).unwrap();
-        let (y, m, d) = date::civil_from_days(today_days - n);
-        format!("{y:04}-{m:02}-{d:02}")
     }
 
     fn seed_stale(path: &std::path::Path) -> Registry {
@@ -283,7 +293,7 @@ mod tests {
     fn bulk_with_no_candidates_says_nothing_to_prune() {
         let (_dir, path) = temp_path();
         let mut reg = Registry::default();
-        seed(&mut reg, "p", "fresh", 20_000, &date::today_iso());
+        seed(&mut reg, "p", "fresh", 20_000, &today_iso());
         write_registry(&path, &reg);
         let out = run(&path, 90, false, true).unwrap();
         assert!(out.contains("Nothing to prune"), "got {out}");
@@ -299,7 +309,7 @@ mod tests {
             gone.to_str().unwrap(),
             "svc",
             20_000,
-            &date::today_iso(),
+            &today_iso(),
         );
         write_registry(&path, &reg);
         let _ = run(&path, 90, false, true).unwrap();
