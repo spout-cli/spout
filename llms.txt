@@ -16,8 +16,9 @@ If a developer reports "port already in use" or "address already in use" errors 
 
 ## Key commands
 
-spout get <service>
-  Returns the registered port for <service> in the current project.
+spout get <service> [--project <NAME>]
+  Returns the registered port for <service> in the current project, or in
+  <NAME> when --project is given (cross-project read).
   Infers the project name from the current working directory (matches Docker Compose convention).
   READ ONLY — never mutates the registry. Safe to call speculatively.
   Exit code 1 if the service is not registered.
@@ -44,8 +45,15 @@ spout set <service> <port> [--udp]
   Exits with an error if the port is claimed by another project on the same
   protocol, or bound by the OS. Default TCP; pass --udp for UDP.
 
-spout rm <service>
-  Removes a registration for <service> in the current project. MUTATES REGISTRY.
+spout rm <service> [--project <NAME>]
+  Removes a registration for <service> in the current project (or NAME).
+  MUTATES REGISTRY.
+
+spout rm --project [NAME] [--yes | --dry-run]
+  Removes EVERY service for that project. NAME defaults to current project.
+  Default: prints the list and prompts [y/N]. --yes skips the confirm,
+  --dry-run lists without removing. Each removed service lands in history
+  with reason "user requested (project rm)". MUTATES REGISTRY.
 
 spout ls
   Lists all registered projects and their ports.
