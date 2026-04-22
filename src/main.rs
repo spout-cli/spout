@@ -58,7 +58,7 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 println!("{port}");
             }
             (None, true) => {
-                return Err(SpoutError::ComposeInvalid(
+                return Err(SpoutError::Usage(
                     "--udp is per-service; pass a service name or declare UDP in the compose port spec".into(),
                 ));
             }
@@ -148,7 +148,7 @@ fn build_rm_target(
         (None, Some(None)) => Ok(commands::RmTarget::Project {
             name: crate::project::current_project()?,
         }),
-        (None, None) => Err(SpoutError::Io(
+        (None, None) => Err(SpoutError::Usage(
             "spout rm: specify a service or pass --project [NAME]".into(),
         )),
     }

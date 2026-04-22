@@ -43,6 +43,9 @@ pub enum SpoutError {
 
     #[error("no compose file found (looked for docker-compose.yml / .yaml / compose.yml / .yaml); pass -f <PATH> to override")]
     ComposeNotFound,
+
+    #[error("{0}")]
+    Usage(String),
 }
 
 impl SpoutError {
@@ -57,6 +60,7 @@ impl SpoutError {
             Self::Io(_) => 7,
             Self::ComposeInvalid(_) => 8,
             Self::ComposeNotFound => 8,
+            Self::Usage(_) => 9,
         }
     }
 }
@@ -125,6 +129,12 @@ mod tests {
     #[test]
     fn compose_not_found_exits_eight() {
         assert_eq!(SpoutError::ComposeNotFound.exit_code(), 8);
+    }
+
+    #[test]
+    fn usage_exits_nine() {
+        let err = SpoutError::Usage("specify a service".into());
+        assert_eq!(err.exit_code(), 9);
     }
 
     #[test]
