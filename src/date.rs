@@ -54,7 +54,7 @@ pub fn days_ago(from: &str) -> Option<i64> {
 
 /// Convert days-since-epoch to (year, month, day) using Hinnant's algorithm.
 /// <https://howardhinnant.github.io/date_algorithms.html#civil_from_days>
-fn civil_from_days(days: i64) -> (i64, u64, u64) {
+pub(crate) fn civil_from_days(days: i64) -> (i64, u64, u64) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64;
