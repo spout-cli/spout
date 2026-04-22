@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- `spout realloc <service>` — shortcut for `rm + alloc` on the same service, done atomically inside one registry lock. Preserves the service's existing protocol (TCP stays TCP, UDP stays UDP); switch protocol explicitly via `rm` + `alloc --udp` if you want to change it. `--project [NAME]` targets a named project. History records the reason as `"reallocated"`. Exit code 1 if the service isn't registered.
 - `spout rm --project [NAME]` removes every service for that project in one shot. Without `NAME` it targets the current project (matches the `--project` flag on `ls` and `env`). Defaults to a `[y/N]` confirmation showing the services about to go; `--yes` skips the prompt; `--dry-run` previews the list without changes. Closes the gap where decommissioning a still-extant project meant looping `spout rm <svc>` by hand. History records each removal with `"user requested (project rm)"` so `spout whois <port> --history` shows the bulk-removal context.
 - `spout rm <service> --project <NAME>` removes a single service from a named project (cross-project removal). Useful from outside a project's working directory.
 - `spout get <service> --project <NAME>` reads a registered port from a named project rather than the current one.
