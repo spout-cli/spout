@@ -192,13 +192,8 @@ mod tests {
 
     #[test]
     fn alloc_udp_and_tcp_can_share_a_port_number() {
-        // Claim a TCP port, then request a UDP allocation for a different
-        // service. The UDP alloc must be free to reuse that same port
-        // number because the protocols are independent.
         let (_dir, path) = temp_registry();
         let tcp_port = alloc(&path, "p", "tcp-svc", Protocol::Tcp).unwrap();
-        // Register the same number on UDP directly so we can assert the
-        // alloc loop doesn't treat a TCP claim as blocking.
         registry::with_lock(&path, |r| {
             r.set("p", "udp-svc", tcp_port, Protocol::Udp);
             Ok(())
@@ -236,7 +231,6 @@ mod tests {
 
     #[test]
     fn tcp_and_udp_probes_are_independent() {
-        // Hold a TCP socket; the UDP port at the same number stays free.
         let listener = TcpListener::bind("0.0.0.0:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         assert!(!is_port_free_on_os(port, Protocol::Tcp));

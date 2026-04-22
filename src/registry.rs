@@ -99,14 +99,12 @@ impl Registry {
     /// Live-registry ownership of (port, protocol). TCP and UDP at the same
     /// number are independent — one does not block the other.
     pub fn is_port_claimed(&self, port: u16, protocol: Protocol) -> Option<(String, String)> {
-        for (project, services) in &self.projects {
-            for (service, entry) in services {
-                if entry.port == port && entry.protocol == protocol {
-                    return Some((project.clone(), service.clone()));
-                }
-            }
-        }
-        None
+        self.projects.iter().find_map(|(project, services)| {
+            services
+                .iter()
+                .find(|(_, e)| e.port == port && e.protocol == protocol)
+                .map(|(service, _)| (project.clone(), service.clone()))
+        })
     }
 
     /// History lookup for a port. Most-recent release first.

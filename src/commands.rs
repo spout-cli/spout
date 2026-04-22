@@ -44,7 +44,7 @@ pub fn set(
         }
         if r.get(&project, service) != Some(port) && !allocator::is_port_free_on_os(port, protocol)
         {
-            return Err(SpoutError::PortInUse(port, protocol));
+            return Err(SpoutError::PortInUse { port, protocol });
         }
         r.set(&project, service, port, protocol);
         Ok(())
@@ -130,6 +130,13 @@ pub fn check(port: u16, protocol: Protocol) -> bool {
     allocator::is_port_free_on_os(port, protocol)
 }
 
+struct Claim<'a> {
+    protocol: Protocol,
+    project: &'a str,
+    service: &'a str,
+    allocated: &'a str,
+}
+
 /// Whois result — `Some(message)` on hit, `None` on miss. Multi-match
 /// responses are newline-joined; TCP sorts before UDP for stable output.
 pub fn whois(
@@ -138,21 +145,31 @@ pub fn whois(
     include_history: bool,
 ) -> Result<Option<String>, SpoutError> {
     let reg = registry::read(registry_path)?;
-    let mut matches: Vec<(Protocol, &String, &String, &str)> = reg
+    let mut matches: Vec<Claim> = reg
         .projects
         .iter()
         .flat_map(|(proj, svcs)| {
             svcs.iter()
                 .filter(|(_, e)| e.port == port)
-                .map(move |(svc, e)| (e.protocol, proj, svc, e.allocated.as_str()))
+                .map(move |(svc, e)| Claim {
+                    protocol: e.protocol,
+                    project: proj,
+                    service: svc,
+                    allocated: e.allocated.as_str(),
+                })
         })
         .collect();
-    matches.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+    matches.sort_by(|a, b| {
+        (a.protocol, a.project, a.service).cmp(&(b.protocol, b.project, b.service))
+    });
     if !matches.is_empty() {
         let lines: Vec<String> = matches
             .into_iter()
-            .map(|(proto, proj, svc, alloc)| {
-                format!("{port}/{proto}: {proj}/{svc}  (active, allocated {alloc})")
+            .map(|c| {
+                format!(
+                    "{port}/{}: {}/{}  (active, allocated {})",
+                    c.protocol, c.project, c.service, c.allocated
+                )
             })
             .collect();
         return Ok(Some(lines.join("\n")));
@@ -168,7 +185,7 @@ pub fn whois(
 
 fn validate_port(port: u16, protocol: Protocol) -> Result<(), SpoutError> {
     if port < 1024 {
-        return Err(SpoutError::PortInUse(port, protocol));
+        return Err(SpoutError::PortInUse { port, protocol });
     }
     Ok(())
 }

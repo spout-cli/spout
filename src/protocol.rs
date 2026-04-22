@@ -1,7 +1,4 @@
 //! Port transport protocol — TCP or UDP.
-//!
-//! Separated from `registry.rs` so the schema module stays under the
-//! 400-line cap with room for future growth.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,12 +12,18 @@ pub enum Protocol {
     Udp,
 }
 
-impl std::fmt::Display for Protocol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
+impl Protocol {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             Self::Tcp => "tcp",
             Self::Udp => "udp",
-        })
+        }
+    }
+}
+
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
