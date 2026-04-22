@@ -1,15 +1,18 @@
 //! `spout alloc` — single-service allocation (`alloc`) and
-//! compose-file-driven batch allocation (`alloc_compose`).
+//! compose-file-driven batch allocation (`compose`).
 
 use std::path::{Path, PathBuf};
 
 use crate::allocator;
 use crate::error::SpoutError;
 use crate::project;
+use crate::project_markers::COMPOSE_FILENAMES;
 use crate::protocol::Protocol;
 use crate::registry;
 
 mod compose;
+
+use compose::ComposeService;
 
 pub fn alloc(registry_path: &Path, service: &str, protocol: Protocol) -> Result<u16, SpoutError> {
     let project = project::current_project()?;
@@ -23,12 +26,12 @@ pub struct ComposeOutcome {
     pub warnings: Vec<String>,
 }
 
-const COMPOSE_FILENAMES: &[&str] = &[
-    "docker-compose.yml",
-    "docker-compose.yaml",
-    "compose.yml",
-    "compose.yaml",
-];
+struct Allocation<'a> {
+    name: &'a str,
+    port: u16,
+    protocol: Protocol,
+    is_new: bool,
+}
 
 pub fn compose(
     registry_path: &Path,
@@ -40,8 +43,24 @@ pub fn compose(
     let yaml = std::fs::read_to_string(&file)
         .map_err(|e| SpoutError::ComposeInvalid(format!("read {}: {e}", file.display())))?;
     let services = compose::parse(&yaml)?;
+    let warnings = build_warnings(&services);
 
-    let mut warnings: Vec<String> = services
+    if services.is_empty() {
+        return Ok(ComposeOutcome {
+            summary: format!("{}: no services with port declarations.", file.display()),
+            warnings,
+        });
+    }
+
+    let allocations = build_allocations(registry_path, &services)?;
+    let summary = format_compose_summary(&file, &allocations);
+    Ok(ComposeOutcome { summary, warnings })
+}
+
+fn build_warnings(services: &[ComposeService]) -> Vec<String> {
+    // BTreeMap iteration gives services in alphabetical order already, so
+    // the resulting warnings are sorted without any further sort() call.
+    services
         .iter()
         .filter(|s| s.extra_ports > 0)
         .map(|s| {
@@ -51,51 +70,34 @@ pub fn compose(
                 s.extra_ports + 1,
             )
         })
-        .collect();
+        .collect()
+}
 
-    if services.is_empty() {
-        return Ok(ComposeOutcome {
-            summary: format!("{}: no services with port declarations.", file.display()),
-            warnings,
-        });
-    }
-
+fn build_allocations<'a>(
+    registry_path: &Path,
+    services: &'a [ComposeService],
+) -> Result<Vec<Allocation<'a>>, SpoutError> {
     let project = project::current_project()?;
-    let targets: Vec<(String, Protocol)> = services
-        .iter()
-        .map(|s| (s.name.clone(), s.protocol))
-        .collect();
-    let names: Vec<String> = targets.iter().map(|(n, _)| n.clone()).collect();
-
-    let (ports, new_flags) = registry::with_lock(registry_path, |r| {
-        let mut ports = Vec::with_capacity(targets.len());
-        let mut new_flags = Vec::with_capacity(targets.len());
-        for (service, protocol) in &targets {
-            let existed = r.get(&project, service).is_some();
-            let port = allocator::alloc_within_lock(r, &project, service, *protocol)?;
-            ports.push(port);
-            new_flags.push(!existed);
-        }
-        Ok((ports, new_flags))
-    })?;
-
-    let new_count = new_flags.iter().filter(|n| **n).count();
-    let existing_count = targets.len() - new_count;
-    let summary = format_compose_summary(
-        &file,
-        &names,
-        &ports,
-        &targets.iter().map(|(_, p)| *p).collect::<Vec<_>>(),
-        new_count,
-        existing_count,
-    );
-    warnings.sort();
-    Ok(ComposeOutcome { summary, warnings })
+    registry::with_lock(registry_path, |r| {
+        services
+            .iter()
+            .map(|s| {
+                let (port, is_new) =
+                    allocator::alloc_within_lock(r, &project, &s.name, s.protocol)?;
+                Ok(Allocation {
+                    name: &s.name,
+                    port,
+                    protocol: s.protocol,
+                    is_new,
+                })
+            })
+            .collect()
+    })
 }
 
 fn discover_compose(cwd: &Path, explicit: Option<&Path>) -> Result<PathBuf, SpoutError> {
     if let Some(p) = explicit {
-        return if p.exists() {
+        return if p.is_file() {
             Ok(p.to_owned())
         } else {
             Err(SpoutError::ComposeNotFound)
@@ -103,42 +105,33 @@ fn discover_compose(cwd: &Path, explicit: Option<&Path>) -> Result<PathBuf, Spou
     }
     for name in COMPOSE_FILENAMES {
         let candidate = cwd.join(name);
-        if candidate.exists() {
+        if candidate.is_file() {
             return Ok(candidate);
         }
     }
     Err(SpoutError::ComposeNotFound)
 }
 
-fn format_compose_summary(
-    file: &Path,
-    names: &[String],
-    ports: &[u16],
-    protocols: &[Protocol],
-    new_count: usize,
-    existing_count: usize,
-) -> String {
-    let header = if existing_count == 0 {
+fn format_compose_summary(file: &Path, allocations: &[Allocation<'_>]) -> String {
+    let total = allocations.len();
+    let new_count = allocations.iter().filter(|a| a.is_new).count();
+    let header = if new_count == total {
         format!(
-            "{} → {} service{} allocated.",
+            "{} → {total} service{} allocated.",
             file.display(),
-            names.len(),
-            if names.len() == 1 { "" } else { "s" }
+            if total == 1 { "" } else { "s" }
         )
     } else {
         format!(
-            "{} → {} services ({} new, {} existing).",
+            "{} → {total} services ({new_count} new, {} existing).",
             file.display(),
-            names.len(),
-            new_count,
-            existing_count,
+            total - new_count,
         )
     };
-    let width = names.iter().map(|n| n.len()).max().unwrap_or(0);
-    let rows: Vec<String> = names
+    let width = allocations.iter().map(|a| a.name.len()).max().unwrap_or(0);
+    let rows: Vec<String> = allocations
         .iter()
-        .zip(ports.iter().zip(protocols.iter()))
-        .map(|(name, (port, proto))| format!("  {name:<width$}  {port}  {proto}"))
+        .map(|a| format!("  {:<width$}  {}  {}", a.name, a.port, a.protocol))
         .collect();
     format!("{header}\n\n{}", rows.join("\n"))
 }
@@ -218,11 +211,12 @@ services:
     fn format_summary_one_service_uses_singular() {
         let out = format_compose_summary(
             Path::new("docker-compose.yml"),
-            &["api".into()],
-            &[20_000],
-            &[Protocol::Tcp],
-            1,
-            0,
+            &[Allocation {
+                name: "api",
+                port: 20_000,
+                protocol: Protocol::Tcp,
+                is_new: true,
+            }],
         );
         assert!(out.contains("1 service allocated"));
         assert!(out.contains("api"));
@@ -234,11 +228,20 @@ services:
     fn format_summary_mixed_new_and_existing() {
         let out = format_compose_summary(
             Path::new("docker-compose.yml"),
-            &["a".into(), "b".into()],
-            &[20_000, 20_001],
-            &[Protocol::Tcp, Protocol::Udp],
-            1,
-            1,
+            &[
+                Allocation {
+                    name: "a",
+                    port: 20_000,
+                    protocol: Protocol::Tcp,
+                    is_new: true,
+                },
+                Allocation {
+                    name: "b",
+                    port: 20_001,
+                    protocol: Protocol::Udp,
+                    is_new: false,
+                },
+            ],
         );
         assert!(out.contains("2 services (1 new, 1 existing)"));
         assert!(out.contains("udp"));
