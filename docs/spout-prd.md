@@ -225,6 +225,11 @@ spout rm --project [NAME]
 spout rm --project [NAME] --yes
 spout rm --project [NAME] --dry-run
 
+# Re-allocate a service's port — atomic shortcut for rm + alloc. [MUTATES]
+# Preserves the existing entry's protocol.
+spout realloc <service>
+spout realloc <service> --project <NAME>
+
 # List all registrations
 spout ls
 
@@ -585,4 +590,3 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 - **Shell completions** (bash, zsh, fish) via `clap_complete`.
 - **Windows support.**
 - **`spout env --dotenv`** — for projects not using varlock, generate a `.env` snippet.
-- **`spout realloc <service>`** — convenience shortcut for `spout rm <svc> && spout alloc <svc>`.
