@@ -14,7 +14,7 @@ use crate::services::env_var_name;
 
 mod alloc;
 mod prune;
-pub use alloc::alloc;
+pub use alloc::{alloc, compose as alloc_compose};
 pub use prune::run as prune;
 
 pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {

@@ -4,6 +4,8 @@
 //! intentional: clap renders them in help output, and agents pattern-match
 //! on them to reason about which commands are safe to call speculatively.
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
@@ -23,12 +25,20 @@ pub enum Commands {
     /// Read a registered port [READ ONLY]
     Get { service: String },
 
-    /// Register a new port (idempotent) [MUTATES REGISTRY]
+    /// Register a new port (idempotent) [MUTATES REGISTRY].
+    ///
+    /// With a service name, registers that single service. With no
+    /// service name, reads docker-compose.yml (or a sibling) and
+    /// registers one port per declared service.
     Alloc {
-        service: String,
-        /// Allocate a UDP port instead of TCP
+        service: Option<String>,
+        /// Allocate a UDP port instead of TCP (single-service mode only)
         #[arg(long)]
         udp: bool,
+        /// Compose file path. Default: auto-detect in the current
+        /// directory. Ignored when <service> is given.
+        #[arg(short = 'f', long = "file", value_name = "PATH")]
+        file: Option<PathBuf>,
     },
 
     /// Register a specific port manually [MUTATES REGISTRY]
@@ -108,9 +118,10 @@ mod tests {
     fn parses_alloc() {
         let cli = Cli::try_parse_from(["spout", "alloc", "postgres"]).unwrap();
         match cli.command {
-            Commands::Alloc { service, udp } => {
-                assert_eq!(service, "postgres");
+            Commands::Alloc { service, udp, file } => {
+                assert_eq!(service.as_deref(), Some("postgres"));
                 assert!(!udp);
+                assert!(file.is_none());
             }
             other => panic!("expected Alloc, got {other:?}"),
         }
@@ -120,9 +131,38 @@ mod tests {
     fn parses_alloc_with_udp_flag() {
         let cli = Cli::try_parse_from(["spout", "alloc", "dns", "--udp"]).unwrap();
         match cli.command {
-            Commands::Alloc { service, udp } => {
-                assert_eq!(service, "dns");
+            Commands::Alloc { service, udp, file } => {
+                assert_eq!(service.as_deref(), Some("dns"));
                 assert!(udp);
+                assert!(file.is_none());
+            }
+            other => panic!("expected Alloc, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_alloc_with_no_service_and_no_file() {
+        let cli = Cli::try_parse_from(["spout", "alloc"]).unwrap();
+        match cli.command {
+            Commands::Alloc { service, udp, file } => {
+                assert!(service.is_none());
+                assert!(!udp);
+                assert!(file.is_none());
+            }
+            other => panic!("expected Alloc, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_alloc_with_file_flag() {
+        let cli = Cli::try_parse_from(["spout", "alloc", "-f", "compose.prod.yml"]).unwrap();
+        match cli.command {
+            Commands::Alloc { service, file, .. } => {
+                assert!(service.is_none());
+                assert_eq!(
+                    file.as_deref(),
+                    Some(std::path::Path::new("compose.prod.yml"))
+                );
             }
             other => panic!("expected Alloc, got {other:?}"),
         }
