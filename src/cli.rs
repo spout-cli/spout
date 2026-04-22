@@ -71,6 +71,15 @@ pub enum Commands {
         dry_run: bool,
     },
 
+    /// Re-allocate a service's port. Shortcut for `rm` + `alloc` that
+    /// preserves the existing protocol. [MUTATES REGISTRY]
+    Realloc {
+        service: String,
+        /// Operate on a named project instead of the current one.
+        #[arg(long, value_name = "NAME")]
+        project: Option<String>,
+    },
+
     /// List all registrations [READ ONLY]
     Ls {
         /// Filter to a project. With no value, uses the current project.

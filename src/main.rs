@@ -85,6 +85,10 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 println!("{out}");
             }
         }
+        Commands::Realloc { service, project } => {
+            let port = commands::realloc(&reg_path, &service, project.as_deref())?;
+            println!("{port}");
+        }
         Commands::Ls { project, no_tui } => {
             if let Some(out) = commands::ls(&reg_path, project, no_tui)? {
                 println!("{out}");
