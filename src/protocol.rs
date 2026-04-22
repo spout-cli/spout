@@ -76,7 +76,8 @@ mod tests {
     // migration behaves. Lives here rather than in registry.rs to keep
     // that module under the 400-line cap.
 
-    use crate::registry::{read, with_lock, write, Entry, Registry};
+    use crate::registry::io::write;
+    use crate::registry::{read, with_lock, Entry, Registry};
     use std::fs;
     use tempfile::TempDir;
 
