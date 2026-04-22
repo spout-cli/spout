@@ -14,11 +14,20 @@ use crate::services::env_var_name;
 
 mod alloc;
 mod prune;
+mod rm;
 pub use alloc::{alloc, compose as alloc_compose};
 pub use prune::run as prune;
+pub use rm::{run as rm, RmOptions, RmTarget};
 
-pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
-    let project = project::current_project()?;
+pub fn get(
+    registry_path: &Path,
+    service: &str,
+    project_override: Option<&str>,
+) -> Result<u16, SpoutError> {
+    let project = match project_override {
+        Some(p) => p.to_owned(),
+        None => project::current_project()?,
+    };
     let reg = registry::read(registry_path)?;
     reg.get(&project, service)
         .ok_or(SpoutError::ServiceNotRegistered)
@@ -51,25 +60,9 @@ pub fn set(
     })
 }
 
-pub fn rm(registry_path: &Path, service: &str) -> Result<(), SpoutError> {
-    let project = project::current_project()?;
-    registry::with_lock(registry_path, |r| {
-        r.remove(&project, service, "user requested")
-            .ok_or(SpoutError::ServiceNotRegistered)?;
-        Ok(())
-    })
-}
-
-/// List registered services.
-///
-/// `project_filter` maps directly from the CLI flag shape:
-/// - `None` → show all projects
-/// - `Some(None)` → filter to the current project
-/// - `Some(Some(name))` → filter to the named project
-///
-/// Returns `Ok(Some(text))` for the plain-text path (piped stdout or
-/// `--no-tui`). Returns `Ok(None)` when the TUI has already rendered and
-/// exited, in which case the caller should not print anything further.
+/// `project_filter`: `None` shows all, `Some(None)` is the current project,
+/// `Some(Some(name))` is a named one. Returns `Ok(None)` when the TUI has
+/// rendered and exited (caller should print nothing more).
 pub fn ls(
     registry_path: &Path,
     project_filter: Option<Option<String>>,
@@ -96,13 +89,9 @@ pub fn ls(
     Ok(Some(text))
 }
 
-/// Print `KEY=VALUE` port assignments for a project.
-///
-/// `project_filter` semantics match `ls`, except "no filter" also
-/// resolves to the current project (env has no "all projects" mode —
-/// env-var names would collide across projects). Returns `None` when
-/// the project has no registrations or doesn't exist, so callers can
-/// skip printing cleanly.
+/// `project_filter` semantics match `ls`, except "no filter" also resolves
+/// to the current project — env has no all-projects mode (env-var names
+/// would collide). Returns `None` when the project has no registrations.
 pub fn env(
     registry_path: &Path,
     project_filter: Option<Option<String>>,
@@ -196,6 +185,14 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
+    fn rm_current(path: &Path, service: &str) -> Result<String, SpoutError> {
+        let target = RmTarget::Service {
+            name: service.into(),
+            project: None,
+        };
+        rm(path, target, RmOptions::default())
+    }
+
     fn temp_registry() -> (TempDir, PathBuf) {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("spout.json");
@@ -205,15 +202,28 @@ mod tests {
     #[test]
     fn get_returns_service_not_registered_when_empty() {
         let (_dir, path) = temp_registry();
-        let err = get(&path, "postgres").unwrap_err();
+        let err = get(&path, "postgres", None).unwrap_err();
         assert_eq!(err.exit_code(), 1);
+    }
+
+    #[test]
+    fn get_with_explicit_project_reads_from_that_project() {
+        let (_dir, path) = temp_registry();
+        registry::with_lock(&path, |r| {
+            r.set("p1", "postgres", 20_000, Protocol::default());
+            r.set("p2", "postgres", 20_001, Protocol::default());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(get(&path, "postgres", Some("p1")).unwrap(), 20_000);
+        assert_eq!(get(&path, "postgres", Some("p2")).unwrap(), 20_001);
     }
 
     #[test]
     fn alloc_then_get_returns_same_port() {
         let (_dir, path) = temp_registry();
         let allocated = alloc(&path, "postgres", Protocol::default()).unwrap();
-        let fetched = get(&path, "postgres").unwrap();
+        let fetched = get(&path, "postgres", None).unwrap();
         assert_eq!(allocated, fetched);
     }
 
@@ -221,7 +231,7 @@ mod tests {
     fn set_registers_port_for_current_project() {
         let (_dir, path) = temp_registry();
         set(&path, "web", 25_000, Protocol::default()).unwrap();
-        let port = get(&path, "web").unwrap();
+        let port = get(&path, "web", None).unwrap();
         assert_eq!(port, 25_000);
     }
 
@@ -236,9 +246,9 @@ mod tests {
     fn rm_removes_and_appends_to_history() {
         let (_dir, path) = temp_registry();
         alloc(&path, "postgres", Protocol::default()).unwrap();
-        rm(&path, "postgres").unwrap();
+        rm_current(&path, "postgres").unwrap();
         assert!(matches!(
-            get(&path, "postgres").unwrap_err(),
+            get(&path, "postgres", None).unwrap_err(),
             SpoutError::ServiceNotRegistered
         ));
         let reg = registry::read(&path).unwrap();
@@ -249,7 +259,7 @@ mod tests {
     #[test]
     fn rm_unregistered_service_errors() {
         let (_dir, path) = temp_registry();
-        let err = rm(&path, "nothing").unwrap_err();
+        let err = rm_current(&path, "nothing").unwrap_err();
         assert_eq!(err.exit_code(), 1);
     }
 
@@ -377,7 +387,7 @@ mod tests {
     fn whois_history_finds_released_ports() {
         let (_dir, path) = temp_registry();
         let port = alloc(&path, "postgres", Protocol::default()).unwrap();
-        rm(&path, "postgres").unwrap();
+        rm_current(&path, "postgres").unwrap();
         assert!(whois(&path, port, false).unwrap().is_none()); // not in live
         let hit = whois(&path, port, true).unwrap().unwrap(); // in history
         assert!(hit.contains("postgres"));

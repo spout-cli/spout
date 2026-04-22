@@ -91,6 +91,30 @@ impl Registry {
         Some(entry.port)
     }
 
+    /// Remove every service registered under `project`, appending each to
+    /// `history` with the given reason. Returns the count removed; 0 if the
+    /// project didn't exist. Used by `spout rm --project` so the whole-
+    /// project teardown happens in a single mutation pass.
+    pub fn remove_project(&mut self, project: &str, reason: &str) -> usize {
+        let Some(services) = self.projects.remove(project) else {
+            return 0;
+        };
+        let count = services.len();
+        let released = today_iso();
+        for (service, entry) in services {
+            self.history.push(HistoryEntry {
+                project: project.to_owned(),
+                service,
+                port: entry.port,
+                allocated: entry.allocated,
+                released: released.clone(),
+                reason: reason.to_owned(),
+                protocol: entry.protocol,
+            });
+        }
+        count
+    }
+
     /// Live-registry ownership of (port, protocol). TCP and UDP at the same
     /// number are independent — one does not block the other.
     pub fn is_port_claimed(&self, port: u16, protocol: Protocol) -> Option<(String, String)> {
