@@ -23,7 +23,12 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Read a registered port [READ ONLY]
-    Get { service: String },
+    Get {
+        service: String,
+        /// Read from a named project instead of the current one.
+        #[arg(long, value_name = "NAME")]
+        project: Option<String>,
+    },
 
     /// Register a new port (idempotent) [MUTATES REGISTRY].
     ///
@@ -50,8 +55,21 @@ pub enum Commands {
         udp: bool,
     },
 
-    /// Remove a registration [MUTATES REGISTRY]
-    Rm { service: String },
+    /// Remove a registration. With `--project [NAME]` and no service,
+    /// removes every service in that project. [MUTATES REGISTRY]
+    Rm {
+        service: Option<String>,
+        /// Operate on a named project (or the current project, with no value)
+        /// instead of the current project. Required when no service is given.
+        #[arg(long, value_name = "NAME", num_args = 0..=1)]
+        project: Option<Option<String>>,
+        /// Skip the [y/N] prompt for whole-project removal.
+        #[arg(long)]
+        yes: bool,
+        /// List candidates without removing them. Whole-project mode only.
+        #[arg(long)]
+        dry_run: bool,
+    },
 
     /// List all registrations [READ ONLY]
     Ls {
