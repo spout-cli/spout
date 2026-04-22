@@ -30,21 +30,24 @@ pub fn alloc(
     protocol: Protocol,
 ) -> Result<u16, SpoutError> {
     registry::with_lock(registry_path, |r| {
-        alloc_within_lock(r, project, service, protocol)
+        alloc_within_lock(r, project, service, protocol).map(|(port, _)| port)
     })
 }
 
-/// Allocate a port inside an already-held registry lock. `compose` calls
-/// this from its batch loop so N services share one file-lock acquisition
-/// instead of N round-trips.
+/// Allocate a port inside an already-held registry lock. Returns `(port,
+/// is_new)` — `is_new` is `false` on the idempotent "already registered"
+/// path and `true` for a fresh allocation. `compose` calls this from its
+/// batch loop so N services share one file-lock acquisition instead of N
+/// round-trips, and uses the flag for the "new vs existing" summary
+/// counts without needing a second `reg.get`.
 pub fn alloc_within_lock(
     reg: &mut Registry,
     project: &str,
     service: &str,
     protocol: Protocol,
-) -> Result<u16, SpoutError> {
+) -> Result<(u16, bool), SpoutError> {
     if let Some(port) = reg.get(project, service) {
-        return Ok(port);
+        return Ok((port, false));
     }
     // Ports claimed on the *same* protocol are off-limits; claims on the
     // other protocol don't block us — TCP 5432 and UDP 5432 coexist.
@@ -63,7 +66,7 @@ pub fn alloc_within_lock(
             continue;
         }
         reg.set(project, service, candidate, protocol);
-        return Ok(candidate);
+        return Ok((candidate, true));
     }
     Err(SpoutError::NoFreePortFound {
         service: service.to_owned(),
