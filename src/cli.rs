@@ -77,6 +77,19 @@ pub enum Commands {
         history: bool,
     },
 
+    /// Surface stale registrations and optionally remove them [MUTATES REGISTRY unless --dry-run]
+    Prune {
+        /// Surface candidates only; make no changes
+        #[arg(long)]
+        dry_run: bool,
+        /// Bulk-remove every candidate without per-entry prompts
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        /// Age cutoff in days; entries older than this are candidates
+        #[arg(long, value_name = "DAYS", default_value_t = 90)]
+        older_than: u64,
+    },
+
     /// Generate a shell completion script for the given shell [READ ONLY]
     Completions { shell: Shell },
 }

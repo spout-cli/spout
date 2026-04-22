@@ -84,6 +84,8 @@ This is the single most important design decision for agent safety. Agents frequ
 | `spout env [--project]` | ❌ Never | Printing `KEY=VALUE` port assignments for shell eval |
 | `spout check <port>` | ❌ Never | OS bind-test diagnostic |
 | `spout whois <port> [--history]` | ❌ Never | Reverse lookup — who owns this port? |
+| `spout prune --dry-run` | ❌ Never | Surface stale registrations without removing |
+| `spout prune [--yes] [--older-than DAYS]` | ✅ Always | Remove stale registrations (interactive or bulk) |
 
 No flag on any read-only command can flip it into a mutator. This is enforced convention across every major CLI tool (kubectl, git, aws, helm, terraform) and agents have been trained against it.
 
@@ -93,7 +95,7 @@ Ports are permanently registered until explicitly removed with `spout rm`. There
 
 **Rationale:** The failure mode of "container stopped and something else stole my port" is worse than stale registry entries. Permanent leases mean your ports are yours until you say otherwise. The registry grows slowly (one entry per project per service) and never surprises you.
 
-Periodic hygiene (surfacing stale entries against currently-present projects) is a planned follow-up feature — see §18. In MVP, `spout rm` is the only cleanup path, and `spout whois --history` lets you look up what released ports used to be.
+Periodic hygiene is handled by `spout prune`: age-based (`--older-than` days) or path-missing (identities whose directory is gone). See §6 for flags. `spout whois <port> --history` surfaces the reason any given port was released — including the rich prune reasons.
 
 ### 3.4 Varlock Integration
 
@@ -225,6 +227,14 @@ spout check <port>
 spout whois <port>
 spout whois <port> --history
 
+# Surface and optionally remove stale registrations.
+# --dry-run is READ ONLY; default mode prompts [y/N/q/!] per entry on stdin;
+# --yes bulk-removes without prompts. --older-than tunes the age cutoff (default 90).
+spout prune --dry-run
+spout prune
+spout prune --yes
+spout prune --older-than 180
+
 # Print version
 spout --version
 ```
@@ -253,6 +263,7 @@ This contract is non-negotiable. Breaking it breaks agent pipelines.
 | `4` | Registry version unsupported |
 | `5` | Port already registered to another project (for `set`) |
 | `6` | Port already in use by OS (for `set`) |
+| `7` | I/O error (e.g., stdout/stdin closed mid-command) |
 
 Exit codes are stable API. They are documented and must not change between versions.
 
@@ -551,7 +562,7 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 
 - **Compose inference** — `spout alloc` with no arguments parses `docker-compose.yml` in the current directory and auto-allocates for every service declared. Reduces typing for the common multi-service case.
 - **`spout scan`** — discover and pre-reserve allocations from running + stopped Docker containers via `docker ps -a`. Closes the remaining stale-port gap for non-20000-range scenarios.
-- **`spout prune`** — stale-entry audit: surface projects whose git remotes / paths no longer resolve. Interactive per-entry confirmation by default; `--dry-run` to surface without changes; `--yes` for bulk removal.
+- **`spout prune --check-remotes`** — opt-in network probe that runs `git ls-remote <url>` against git-remote identities to mark unreachable repos as candidates. Deferred so the default stays offline.
 - **Bind-mount source path detection** — for containerised dev environments where CWD is a mount point, walk `/proc/self/mountinfo` to find the source path.
 - **Shell completions** (bash, zsh, fish) via `clap_complete`.
 - **Windows support.**

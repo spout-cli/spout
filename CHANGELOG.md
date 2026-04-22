@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `spout whois <port>` now surfaces every registration for that port across both protocols, sorted TCP first. One line per match: `5432/tcp: project/service (active, allocated DATE)`.
 - `spout ls` gains a `PROTO` column in the TUI; plain-text output suffixes the port as `port/proto` on every row. Service rows sort by protocol then service name, so TCP groups above UDP at the same port.
 - Registry schema bumped to v2 to record protocol per entry. v1 files read transparently — the missing field defaults to `tcp` — and the next mutating command persists v2.
+- `spout prune` — surface and optionally remove stale registrations. Candidates are entries whose `allocated` is older than `--older-than <DAYS>` (default 90), or whose project identity is an absolute filesystem path that no longer exists. Three modes: `--dry-run` surfaces candidates without changes; `--yes` bulk-removes without prompting; the default prompts `[y/N/q/!]` per entry via stdin (`y` yes, `N` keep, `q` quit, `!` yes-to-all). Pruned entries land in `history` with reasons like `pruned: stale (older than 90d)` or `pruned: project path missing`, so `spout whois <port> --history` stays informative.
 
 ### Changed
 - `SpoutError::PortAlreadyClaimed` and `SpoutError::PortInUse` carry the protocol and render it in the user-facing message (e.g. `port 5432/udp is already in use by the operating system`).

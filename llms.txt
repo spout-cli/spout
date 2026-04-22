@@ -51,13 +51,23 @@ spout whois <port>
   Reverse lookup: surfaces every registration for that port across both TCP
   and UDP, sorted TCP first. Add --history to include released ports. READ ONLY.
 
+spout prune [--dry-run | --yes] [--older-than DAYS]
+  Surface and optionally remove stale registrations. Candidates are entries
+  whose allocated date is older than --older-than (default 90 days), or
+  whose project identity is an absolute filesystem path whose directory no
+  longer exists.
+  --dry-run just lists candidates (READ ONLY).
+  Default mode prompts [y/N/q/!] per entry on stdin.
+  --yes bulk-removes without prompting.
+  MUTATES REGISTRY unless --dry-run.
+
 ## The mutation boundary
 
 These commands are strictly read-only and safe to call speculatively:
-  get, ls, check
+  get, ls, check, whois, env, prune --dry-run
 
 These commands mutate the registry and must be called intentionally:
-  alloc, set, rm
+  alloc, set, rm, prune (without --dry-run)
 
 The distinction exists so agents can probe the registry without accidental side effects.
 
@@ -70,6 +80,7 @@ The distinction exists so agents can probe the registry without accidental side 
 4  Registry version unsupported
 5  Port already claimed by another project
 6  Port already in use by OS
+7  I/O error (e.g., stdout or stdin closed mid-command)
 
 ## Integration with varlock
 
