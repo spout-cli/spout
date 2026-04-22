@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- UDP support via `--udp` flag on `spout alloc`, `spout set`, and `spout check`. TCP remains the default, so every existing invocation is byte-identical. TCP and UDP registrations at the same port number coexist — a TCP claim on 5432 does not block UDP 5432, matching kernel semantics.
+- `spout whois <port>` now surfaces every registration for that port across both protocols, sorted TCP first. One line per match: `5432/tcp: project/service (active, allocated DATE)`.
+- `spout ls` gains a `PROTO` column in the TUI; plain-text output suffixes the port as `port/proto` on every row. Service rows sort by protocol then service name, so TCP groups above UDP at the same port.
+- Registry schema bumped to v2 to record protocol per entry. v1 files read transparently — the missing field defaults to `tcp` — and the next mutating command persists v2.
+
+### Changed
+- `SpoutError::PortAlreadyClaimed` and `SpoutError::PortInUse` carry the protocol and render it in the user-facing message (e.g. `port 5432/udp is already in use by the operating system`).
+
 ## [0.1.0] - 2026-04-22
 
 ### Added

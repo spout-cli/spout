@@ -89,11 +89,13 @@ Elvish and PowerShell are also supported via `spout completions elvish` and `spo
 ```bash
 spout get <service>         # read registered port              [READ ONLY]
 spout alloc <service>       # register new port if needed       [MUTATES]
+spout alloc <service> --udp # same, UDP instead of TCP          [MUTATES]
 spout set <service> <port>  # manually register a port          [MUTATES]
 spout rm <service>          # remove a registration             [MUTATES]
 spout ls                    # list all projects                 [READ ONLY]
 spout ls --project          # list only the current project     [READ ONLY]
 spout check <port>          # exit 0 if free, 1 if taken        [READ ONLY]
+spout check <port> --udp    # same, UDP instead of TCP          [READ ONLY]
 spout whois <port>          # which project/service owns a port [READ ONLY]
 spout whois <port> --history  # include released ports          [READ ONLY]
 ```
@@ -108,6 +110,34 @@ When stdout is piped, redirected, or you pass `--no-tui`, the command emits plai
 spout ls                    # interactive viewer in a terminal
 spout ls --no-tui           # plain text, even in a terminal
 spout ls | cat              # plain text (pipe → no TTY)
+```
+
+### UDP services
+
+Most dev services are TCP — that's the default for every command, and
+every existing invocation works unchanged. For services that bind UDP
+(DNS, some game servers, QUIC dev stacks, mDNS-alike tooling), add
+`--udp`:
+
+```bash
+spout alloc dns --udp         # pick a free UDP port in 20000–32767
+spout set dns 5353 --udp      # register a specific UDP port
+spout check 5353 --udp        # is this UDP port free on the OS?
+```
+
+TCP 5432 and UDP 5432 are independent in the registry — kernels treat
+them as separate, and so does spout. A single service name is one
+protocol: if you need both sides, register two names (`coredns-tcp`,
+`coredns-udp`).
+
+`spout whois <port>` has no `--udp` flag because the interesting
+question is always "what's on this port?" across every protocol — it
+lists every match, TCP first:
+
+```
+$ spout whois 5432
+5432/tcp: github.com/acme/api/postgres    (active, allocated 2026-04-10)
+5432/udp: github.com/acme/game/session    (active, allocated 2026-04-18)
 ```
 
 ### Personalizing the viewer

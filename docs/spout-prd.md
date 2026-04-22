@@ -557,4 +557,3 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 - **Windows support.**
 - **`spout env --dotenv`** — for projects not using varlock, generate a `.env` snippet.
 - **`spout realloc <service>`** — convenience shortcut for `spout rm <svc> && spout alloc <svc>`.
-- **UDP bind-testing** — current implementation tests TCP only.
