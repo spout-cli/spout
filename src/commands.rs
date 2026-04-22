@@ -27,7 +27,9 @@ pub fn set(registry_path: &Path, service: &str, port: u16) -> Result<(), SpoutEr
     validate_port(port)?;
     let project = project::current_project()?;
     registry::with_lock(registry_path, |r| {
-        if let Some((owner_project, _)) = r.is_port_claimed(port) {
+        if let Some((owner_project, _)) =
+            r.is_port_claimed(port, crate::protocol::Protocol::default())
+        {
             if owner_project != project {
                 return Err(SpoutError::PortAlreadyClaimed {
                     port,
@@ -131,7 +133,9 @@ pub fn whois(
     include_history: bool,
 ) -> Result<Option<String>, SpoutError> {
     let reg = registry::read(registry_path)?;
-    if let Some((project, service)) = reg.is_port_claimed(port) {
+    if let Some((project, service)) =
+        reg.is_port_claimed(port, crate::protocol::Protocol::default())
+    {
         let allocated = reg
             .projects
             .get(&project)
