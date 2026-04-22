@@ -240,7 +240,7 @@ fn collect_service_rows(
             Row::new(vec![
                 Cell::from(label),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
-                Cell::from(entry.protocol.to_string()).style(Style::new().dim()),
+                Cell::from(entry.protocol.as_str()).style(Style::new().dim()),
                 Cell::from(env_var_name(svc)).style(Style::new().fg(Color::Yellow)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
             ])
