@@ -8,6 +8,7 @@ use crate::allocator;
 use crate::error::SpoutError;
 use crate::format;
 use crate::project;
+use crate::protocol::Protocol;
 use crate::registry;
 use crate::services::env_var_name;
 
@@ -18,27 +19,34 @@ pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
         .ok_or(SpoutError::ServiceNotRegistered)
 }
 
-pub fn alloc(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
+pub fn alloc(registry_path: &Path, service: &str, protocol: Protocol) -> Result<u16, SpoutError> {
     let project = project::current_project()?;
-    allocator::alloc(registry_path, &project, service)
+    allocator::alloc(registry_path, &project, service, protocol)
 }
 
-pub fn set(registry_path: &Path, service: &str, port: u16) -> Result<(), SpoutError> {
-    validate_port(port)?;
+pub fn set(
+    registry_path: &Path,
+    service: &str,
+    port: u16,
+    protocol: Protocol,
+) -> Result<(), SpoutError> {
+    validate_port(port, protocol)?;
     let project = project::current_project()?;
     registry::with_lock(registry_path, |r| {
-        if let Some((owner_project, _)) = r.is_port_claimed(port) {
+        if let Some((owner_project, _)) = r.is_port_claimed(port, protocol) {
             if owner_project != project {
                 return Err(SpoutError::PortAlreadyClaimed {
                     port,
+                    protocol,
                     project: owner_project,
                 });
             }
         }
-        if r.get(&project, service) != Some(port) && !allocator::is_port_free_on_os(port) {
-            return Err(SpoutError::PortInUse(port));
+        if r.get(&project, service) != Some(port) && !allocator::is_port_free_on_os(port, protocol)
+        {
+            return Err(SpoutError::PortInUse { port, protocol });
         }
-        r.set(&project, service, port);
+        r.set(&project, service, port, protocol);
         Ok(())
     })
 }
@@ -118,27 +126,53 @@ pub fn env(
     ))
 }
 
-pub fn check(port: u16) -> bool {
-    allocator::is_port_free_on_os(port)
+pub fn check(port: u16, protocol: Protocol) -> bool {
+    allocator::is_port_free_on_os(port, protocol)
 }
 
-/// Whois result — `Some(message)` on hit, `None` on miss.
+struct Claim<'a> {
+    protocol: Protocol,
+    project: &'a str,
+    service: &'a str,
+    allocated: &'a str,
+}
+
+/// Whois result — `Some(message)` on hit, `None` on miss. Multi-match
+/// responses are newline-joined; TCP sorts before UDP for stable output.
 pub fn whois(
     registry_path: &Path,
     port: u16,
     include_history: bool,
 ) -> Result<Option<String>, SpoutError> {
     let reg = registry::read(registry_path)?;
-    if let Some((project, service)) = reg.is_port_claimed(port) {
-        let allocated = reg
-            .projects
-            .get(&project)
-            .and_then(|s| s.get(&service))
-            .map(|e| e.allocated.as_str())
-            .unwrap_or("?");
-        return Ok(Some(format!(
-            "{port}: {project}/{service}  (active, allocated {allocated})"
-        )));
+    let mut matches: Vec<Claim> = reg
+        .projects
+        .iter()
+        .flat_map(|(proj, svcs)| {
+            svcs.iter()
+                .filter(|(_, e)| e.port == port)
+                .map(move |(svc, e)| Claim {
+                    protocol: e.protocol,
+                    project: proj,
+                    service: svc,
+                    allocated: e.allocated.as_str(),
+                })
+        })
+        .collect();
+    matches.sort_by(|a, b| {
+        (a.protocol, a.project, a.service).cmp(&(b.protocol, b.project, b.service))
+    });
+    if !matches.is_empty() {
+        let lines: Vec<String> = matches
+            .into_iter()
+            .map(|c| {
+                format!(
+                    "{port}/{}: {}/{}  (active, allocated {})",
+                    c.protocol, c.project, c.service, c.allocated
+                )
+            })
+            .collect();
+        return Ok(Some(lines.join("\n")));
     }
     if include_history {
         let entries = reg.history_for_port(port);
@@ -149,9 +183,9 @@ pub fn whois(
     Ok(None)
 }
 
-fn validate_port(port: u16) -> Result<(), SpoutError> {
+fn validate_port(port: u16, protocol: Protocol) -> Result<(), SpoutError> {
     if port < 1024 {
-        return Err(SpoutError::PortInUse(port));
+        return Err(SpoutError::PortInUse { port, protocol });
     }
     Ok(())
 }
@@ -178,7 +212,7 @@ mod tests {
     #[test]
     fn alloc_then_get_returns_same_port() {
         let (_dir, path) = temp_registry();
-        let allocated = alloc(&path, "postgres").unwrap();
+        let allocated = alloc(&path, "postgres", Protocol::default()).unwrap();
         let fetched = get(&path, "postgres").unwrap();
         assert_eq!(allocated, fetched);
     }
@@ -186,7 +220,7 @@ mod tests {
     #[test]
     fn set_registers_port_for_current_project() {
         let (_dir, path) = temp_registry();
-        set(&path, "web", 25_000).unwrap();
+        set(&path, "web", 25_000, Protocol::default()).unwrap();
         let port = get(&path, "web").unwrap();
         assert_eq!(port, 25_000);
     }
@@ -194,14 +228,14 @@ mod tests {
     #[test]
     fn set_rejects_privileged_port() {
         let (_dir, path) = temp_registry();
-        let err = set(&path, "web", 80).unwrap_err();
+        let err = set(&path, "web", 80, Protocol::default()).unwrap_err();
         assert_eq!(err.exit_code(), 6);
     }
 
     #[test]
     fn rm_removes_and_appends_to_history() {
         let (_dir, path) = temp_registry();
-        alloc(&path, "postgres").unwrap();
+        alloc(&path, "postgres", Protocol::default()).unwrap();
         rm(&path, "postgres").unwrap();
         assert!(matches!(
             get(&path, "postgres").unwrap_err(),
@@ -229,8 +263,8 @@ mod tests {
     #[test]
     fn ls_shows_project_and_services_after_alloc() {
         let (_dir, path) = temp_registry();
-        alloc(&path, "postgres").unwrap();
-        alloc(&path, "redis").unwrap();
+        alloc(&path, "postgres", Protocol::default()).unwrap();
+        alloc(&path, "redis", Protocol::default()).unwrap();
         let out = ls(&path, None, true).unwrap().unwrap();
         assert!(out.contains("postgres"));
         assert!(out.contains("redis"));
@@ -240,8 +274,8 @@ mod tests {
     fn ls_filters_to_named_project() {
         let (_dir, path) = temp_registry();
         registry::with_lock(&path, |r| {
-            r.set("alpha", "postgres", 20_000);
-            r.set("beta", "redis", 20_001);
+            r.set("alpha", "postgres", 20_000, Protocol::default());
+            r.set("beta", "redis", 20_001, Protocol::default());
             Ok(())
         })
         .unwrap();
@@ -265,9 +299,9 @@ mod tests {
     fn env_named_project_emits_sorted_key_value_lines() {
         let (_dir, path) = temp_registry();
         registry::with_lock(&path, |r| {
-            r.set("myproj", "redis", 20_001);
-            r.set("myproj", "postgres", 20_000);
-            r.set("myproj", "mailpit-smtp", 20_002);
+            r.set("myproj", "redis", 20_001, Protocol::default());
+            r.set("myproj", "postgres", 20_000, Protocol::default());
+            r.set("myproj", "mailpit-smtp", 20_002, Protocol::default());
             Ok(())
         })
         .unwrap();
@@ -283,7 +317,7 @@ mod tests {
     #[test]
     fn env_current_project_after_alloc_contains_the_service() {
         let (_dir, path) = temp_registry();
-        let port = alloc(&path, "postgres").unwrap();
+        let port = alloc(&path, "postgres", Protocol::default()).unwrap();
         let out = env(&path, None).unwrap().unwrap();
         assert!(out.contains(&format!("POSTGRES_PORT={port}")));
     }
@@ -292,7 +326,7 @@ mod tests {
     fn env_named_project_with_no_services_returns_none() {
         let (_dir, path) = temp_registry();
         registry::with_lock(&path, |r| {
-            r.set("proj", "svc", 20_000);
+            r.set("proj", "svc", 20_000, Protocol::default());
             r.remove("proj", "svc", "test").unwrap();
             Ok(())
         })
@@ -305,14 +339,14 @@ mod tests {
         use std::net::TcpListener;
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
-        assert!(!check(port));
+        assert!(!check(port, Protocol::default()));
         // `l` drops at end of scope; no race window.
     }
 
     #[test]
     fn whois_returns_active_registration() {
         let (_dir, path) = temp_registry();
-        let port = alloc(&path, "postgres").unwrap();
+        let port = alloc(&path, "postgres", Protocol::default()).unwrap();
         let result = whois(&path, port, false).unwrap().unwrap();
         assert!(result.contains("postgres"));
         assert!(result.contains("active"));
@@ -325,9 +359,24 @@ mod tests {
     }
 
     #[test]
+    fn whois_lists_both_protocols_tcp_first() {
+        let (_dir, path) = temp_registry();
+        registry::with_lock(&path, |r| {
+            r.set("p", "tcp-svc", 20_000, Protocol::Tcp);
+            r.set("p", "udp-svc", 20_000, Protocol::Udp);
+            Ok(())
+        })
+        .unwrap();
+        let out = whois(&path, 20_000, false).unwrap().unwrap();
+        let tcp_pos = out.find("20000/tcp").expect("tcp row missing");
+        let udp_pos = out.find("20000/udp").expect("udp row missing");
+        assert!(tcp_pos < udp_pos, "expected tcp before udp, got:\n{out}");
+    }
+
+    #[test]
     fn whois_history_finds_released_ports() {
         let (_dir, path) = temp_registry();
-        let port = alloc(&path, "postgres").unwrap();
+        let port = alloc(&path, "postgres", Protocol::default()).unwrap();
         rm(&path, "postgres").unwrap();
         assert!(whois(&path, port, false).unwrap().is_none()); // not in live
         let hit = whois(&path, port, true).unwrap().unwrap(); // in history

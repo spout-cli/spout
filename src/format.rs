@@ -43,14 +43,15 @@ pub fn project_block(
         Some(s) if !s.is_empty() => {
             let width = s.keys().map(|k| k.len()).max().unwrap_or(0);
             let mut sorted: Vec<_> = s.iter().collect();
-            sorted.sort_by(|a, b| a.0.cmp(b.0));
+            sorted.sort_by(|a, b| (a.1.protocol, a.0).cmp(&(b.1.protocol, b.0)));
             for (svc, entry) in sorted {
                 let status = port_status_glyph(bound.contains(&entry.port));
                 out.push_str(&format!(
-                    "  {} {:<width$}  {}  (since {})\n",
+                    "  {} {:<width$}  {}/{}  (since {})\n",
                     status,
                     svc,
                     entry.port,
+                    entry.protocol,
                     entry.allocated,
                     width = width
                 ));
@@ -66,8 +67,8 @@ pub fn history(entries: &[&HistoryEntry]) -> String {
         .iter()
         .map(|e| {
             format!(
-                "{}: was {}/{}  (allocated {}, released {} — {})",
-                e.port, e.project, e.service, e.allocated, e.released, e.reason
+                "{}/{}: was {}/{}  (allocated {}, released {} — {})",
+                e.port, e.protocol, e.project, e.service, e.allocated, e.released, e.reason
             )
         })
         .collect::<Vec<_>>()
@@ -82,6 +83,7 @@ mod tests {
         Entry {
             port,
             allocated: allocated.to_owned(),
+            protocol: crate::protocol::Protocol::default(),
         }
     }
 
@@ -110,5 +112,34 @@ mod tests {
         let reg = Registry::default();
         let bound = HashSet::new();
         assert_eq!(all(&reg, &bound), "(no registrations)");
+    }
+
+    #[test]
+    fn project_block_shows_protocol_suffix_on_every_row() {
+        use crate::protocol::Protocol;
+        let mut services = HashMap::new();
+        services.insert(
+            "postgres".to_owned(),
+            Entry {
+                port: 20_000,
+                allocated: "2026-04-21".into(),
+                protocol: Protocol::Tcp,
+            },
+        );
+        services.insert(
+            "dns".to_owned(),
+            Entry {
+                port: 20_053,
+                allocated: "2026-04-21".into(),
+                protocol: Protocol::Udp,
+            },
+        );
+        let out = project_block("proj", Some(&services), &HashSet::new());
+        assert!(out.contains("20000/tcp"), "got {out}");
+        assert!(out.contains("20053/udp"), "got {out}");
+        // TCP rows sort before UDP at the same port region.
+        let tcp_pos = out.find("postgres").unwrap();
+        let udp_pos = out.find("dns").unwrap();
+        assert!(tcp_pos < udp_pos, "expected tcp before udp, got:\n{out}");
     }
 }

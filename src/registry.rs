@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::date::today_iso;
 use crate::error::SpoutError;
+use crate::protocol::Protocol;
 
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 const SPOUT_REGISTRY_ENV: &str = "SPOUT_REGISTRY";
 
@@ -34,6 +35,8 @@ pub struct Registry {
 pub struct Entry {
     pub port: u16,
     pub allocated: String,
+    #[serde(default)]
+    pub protocol: Protocol,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -44,6 +47,8 @@ pub struct HistoryEntry {
     pub allocated: String,
     pub released: String,
     pub reason: String,
+    #[serde(default)]
+    pub protocol: Protocol,
 }
 
 impl Default for Registry {
@@ -61,12 +66,13 @@ impl Registry {
         self.projects.get(project)?.get(service).map(|e| e.port)
     }
 
-    pub fn set(&mut self, project: &str, service: &str, port: u16) {
+    pub fn set(&mut self, project: &str, service: &str, port: u16, protocol: Protocol) {
         self.projects.entry(project.to_owned()).or_default().insert(
             service.to_owned(),
             Entry {
                 port,
                 allocated: today_iso(),
+                protocol,
             },
         );
     }
@@ -85,20 +91,20 @@ impl Registry {
             allocated: entry.allocated,
             released: today_iso(),
             reason: reason.to_owned(),
+            protocol: entry.protocol,
         });
         Some(entry.port)
     }
 
-    /// Live-registry port ownership check. Returns (project, service) if claimed.
-    pub fn is_port_claimed(&self, port: u16) -> Option<(String, String)> {
-        for (project, services) in &self.projects {
-            for (service, entry) in services {
-                if entry.port == port {
-                    return Some((project.clone(), service.clone()));
-                }
-            }
-        }
-        None
+    /// Live-registry ownership of (port, protocol). TCP and UDP at the same
+    /// number are independent — one does not block the other.
+    pub fn is_port_claimed(&self, port: u16, protocol: Protocol) -> Option<(String, String)> {
+        self.projects.iter().find_map(|(project, services)| {
+            services
+                .iter()
+                .find(|(_, e)| e.port == port && e.protocol == protocol)
+                .map(|(service, _)| (project.clone(), service.clone()))
+        })
     }
 
     /// History lookup for a port. Most-recent release first.
@@ -118,9 +124,8 @@ pub fn registry_path() -> Result<PathBuf, SpoutError> {
         .ok_or_else(|| SpoutError::RegistryCorrupt("cannot determine home directory".to_owned()))
 }
 
-/// Derive the lock file path from the registry path by replacing the extension.
-/// `/tmp/foo.json` → `/tmp/foo.lock`. Critical for test isolation — every test
-/// using a unique SPOUT_REGISTRY gets a unique lock file, so tests don't contend.
+/// `/tmp/foo.json` → `/tmp/foo.lock`. Critical for test isolation — every
+/// test using a unique SPOUT_REGISTRY gets a unique lock file.
 pub fn lock_path(registry: &Path) -> PathBuf {
     let mut p = registry.to_path_buf();
     p.set_extension("lock");
@@ -132,7 +137,7 @@ pub fn read(path: &Path) -> Result<Registry, SpoutError> {
         Ok(contents) => {
             let registry: Registry = serde_json::from_str(&contents)
                 .map_err(|e| SpoutError::RegistryCorrupt(format!("parse failed: {e}")))?;
-            if registry.version != CURRENT_VERSION {
+            if registry.version != 1 && registry.version != CURRENT_VERSION {
                 return Err(SpoutError::RegistryVersionUnknown(registry.version));
             }
             Ok(registry)
@@ -187,6 +192,7 @@ where
         .map_err(|e| SpoutError::RegistryCorrupt(format!("acquire lock: {e}")))?;
 
     let mut r = read(registry)?;
+    r.version = CURRENT_VERSION;
     let result = f(&mut r)?;
     write(registry, &r)?;
     Ok(result)
@@ -232,7 +238,7 @@ mod tests {
     fn write_then_read_round_trip() {
         let (_dir, path) = temp_registry();
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         write(&path, &r).unwrap();
         let back = read(&path).unwrap();
         assert_eq!(back.get("myproj", "postgres"), Some(19456));
@@ -241,7 +247,7 @@ mod tests {
     #[test]
     fn registry_set_get_remove_roundtrip() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         assert_eq!(r.get("myproj", "postgres"), Some(19456));
 
         let removed = r.remove("myproj", "postgres", "test");
@@ -255,7 +261,7 @@ mod tests {
     #[test]
     fn remove_carries_allocated_date_into_history() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         let live_allocated = r
             .projects
             .get("myproj")
@@ -271,7 +277,7 @@ mod tests {
     #[test]
     fn remove_empties_project_entry() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         r.remove("myproj", "postgres", "test");
         assert!(!r.projects.contains_key("myproj"));
     }
@@ -279,15 +285,15 @@ mod tests {
     #[test]
     fn is_port_claimed_finds_existing() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
-        let owner = r.is_port_claimed(19456).unwrap();
+        r.set("myproj", "postgres", 19456, Protocol::default());
+        let owner = r.is_port_claimed(19456, Protocol::Tcp).unwrap();
         assert_eq!(owner, ("myproj".to_owned(), "postgres".to_owned()));
     }
 
     #[test]
     fn is_port_claimed_returns_none_for_free() {
         let r = Registry::default();
-        assert!(r.is_port_claimed(19456).is_none());
+        assert!(r.is_port_claimed(19456, Protocol::Tcp).is_none());
     }
 
     #[test]
@@ -300,6 +306,7 @@ mod tests {
             allocated: "2025-09-01".into(),
             released: "2026-01-01".into(),
             reason: "x".into(),
+            protocol: Protocol::default(),
         });
         r.history.push(HistoryEntry {
             project: "b".into(),
@@ -308,6 +315,7 @@ mod tests {
             allocated: "2026-02-01".into(),
             released: "2026-06-01".into(),
             reason: "y".into(),
+            protocol: Protocol::default(),
         });
         let entries = r.history_for_port(19456);
         assert_eq!(entries.len(), 2);
@@ -319,7 +327,7 @@ mod tests {
     fn with_lock_applies_mutation() {
         let (_dir, path) = temp_registry();
         with_lock(&path, |r| {
-            r.set("myproj", "postgres", 19456);
+            r.set("myproj", "postgres", 19456, Protocol::default());
             Ok(())
         })
         .unwrap();
@@ -368,7 +376,12 @@ mod tests {
             handles.push(thread::spawn(move || {
                 let _ = &keep;
                 with_lock(&path, |r| {
-                    r.set("myproj", &format!("svc{i}"), 20_000 + i);
+                    r.set(
+                        "myproj",
+                        &format!("svc{i}"),
+                        20_000 + i,
+                        Protocol::default(),
+                    );
                     Ok(())
                 })
                 .unwrap();

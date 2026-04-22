@@ -24,10 +24,21 @@ pub enum Commands {
     Get { service: String },
 
     /// Register a new port (idempotent) [MUTATES REGISTRY]
-    Alloc { service: String },
+    Alloc {
+        service: String,
+        /// Allocate a UDP port instead of TCP
+        #[arg(long)]
+        udp: bool,
+    },
 
     /// Register a specific port manually [MUTATES REGISTRY]
-    Set { service: String, port: u16 },
+    Set {
+        service: String,
+        port: u16,
+        /// Register the UDP port instead of TCP
+        #[arg(long)]
+        udp: bool,
+    },
 
     /// Remove a registration [MUTATES REGISTRY]
     Rm { service: String },
@@ -51,7 +62,12 @@ pub enum Commands {
     },
 
     /// Check if a port is free on the OS (exit 0 free, 1 taken) [READ ONLY]
-    Check { port: u16 },
+    Check {
+        port: u16,
+        /// Check UDP instead of TCP
+        #[arg(long)]
+        udp: bool,
+    },
 
     /// Reverse lookup — which project/service owns this port? [READ ONLY]
     Whois {
@@ -79,8 +95,48 @@ mod tests {
     fn parses_alloc() {
         let cli = Cli::try_parse_from(["spout", "alloc", "postgres"]).unwrap();
         match cli.command {
-            Commands::Alloc { service } => assert_eq!(service, "postgres"),
+            Commands::Alloc { service, udp } => {
+                assert_eq!(service, "postgres");
+                assert!(!udp);
+            }
             other => panic!("expected Alloc, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_alloc_with_udp_flag() {
+        let cli = Cli::try_parse_from(["spout", "alloc", "dns", "--udp"]).unwrap();
+        match cli.command {
+            Commands::Alloc { service, udp } => {
+                assert_eq!(service, "dns");
+                assert!(udp);
+            }
+            other => panic!("expected Alloc, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_set_with_udp_flag() {
+        let cli = Cli::try_parse_from(["spout", "set", "dns", "5353", "--udp"]).unwrap();
+        match cli.command {
+            Commands::Set { service, port, udp } => {
+                assert_eq!(service, "dns");
+                assert_eq!(port, 5353);
+                assert!(udp);
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_check_with_udp_flag() {
+        let cli = Cli::try_parse_from(["spout", "check", "5353", "--udp"]).unwrap();
+        match cli.command {
+            Commands::Check { port, udp } => {
+                assert_eq!(port, 5353);
+                assert!(udp);
+            }
+            other => panic!("expected Check, got {other:?}"),
         }
     }
 
