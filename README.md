@@ -90,6 +90,8 @@ Elvish and PowerShell are also supported via `spout completions elvish` and `spo
 spout get <service>         # read registered port              [READ ONLY]
 spout alloc <service>       # register new port if needed       [MUTATES]
 spout alloc <service> --udp # same, UDP instead of TCP          [MUTATES]
+spout alloc                 # batch-alloc from docker-compose.yml [MUTATES]
+spout alloc -f compose.yml  # same, explicit compose file        [MUTATES]
 spout set <service> <port>  # manually register a port          [MUTATES]
 spout rm <service>          # remove a registration             [MUTATES]
 spout prune --dry-run       # surface stale registrations        [READ ONLY]
@@ -114,6 +116,45 @@ spout ls                    # interactive viewer in a terminal
 spout ls --no-tui           # plain text, even in a terminal
 spout ls | cat              # plain text (pipe → no TTY)
 ```
+
+### Compose files
+
+For projects with more than one or two services, pointing spout at your
+compose file is faster than naming each service by hand:
+
+```bash
+$ spout alloc
+docker-compose.yml → 4 services allocated.
+
+  postgres  20000  tcp
+  redis     20001  tcp
+  dns       20002  udp
+  api       20003  tcp
+```
+
+With no service name, `spout alloc` looks for `docker-compose.yml`,
+`docker-compose.yaml`, `compose.yml`, or `compose.yaml` in the current
+directory (first match wins). Pass `-f <PATH>` to point at a specific
+file:
+
+```bash
+spout alloc -f compose.prod.yml
+```
+
+Protocol is inferred from each service's port spec — `"53:53/udp"` or a
+long-form `protocol: udp` field allocates a UDP port, everything else
+gets TCP. Re-running is idempotent: services that were already registered
+keep their ports, and the summary header makes the split visible:
+
+```
+docker-compose.yml → 4 services (1 new, 3 existing).
+```
+
+Services with no `ports:` block are skipped. Services that declare
+multiple ports allocate the first and emit a stderr warning; split them
+into separate compose services if you need all of them registered. For
+fine-grained scenarios (UDP-only, `extends`, `${VAR}` interpolation) use
+the single-service form: `spout alloc <name> --udp`.
 
 ### UDP services
 
@@ -374,6 +415,7 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | 5    | Port already registered to another project |
 | 6    | Port already in use by OS              |
 | 7    | I/O error (e.g., stdout or stdin closed mid-command) |
+| 8    | Compose file missing or malformed (for `spout alloc`) |
 
 ---
 

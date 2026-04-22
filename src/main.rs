@@ -52,10 +52,24 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
             let port = commands::get(&reg_path, &service)?;
             println!("{port}");
         }
-        Commands::Alloc { service, udp } => {
-            let port = commands::alloc(&reg_path, &service, proto(udp))?;
-            println!("{port}");
-        }
+        Commands::Alloc { service, udp, file } => match (service, udp) {
+            (Some(svc), _) => {
+                let port = commands::alloc(&reg_path, &svc, proto(udp))?;
+                println!("{port}");
+            }
+            (None, true) => {
+                return Err(SpoutError::ComposeInvalid(
+                    "--udp is per-service; pass a service name or declare UDP in the compose port spec".into(),
+                ));
+            }
+            (None, false) => {
+                let outcome = commands::alloc_compose(&reg_path, file.as_deref())?;
+                for w in &outcome.warnings {
+                    eprintln!("spout: {w}");
+                }
+                println!("{}", outcome.summary);
+            }
+        },
         Commands::Set { service, port, udp } => {
             commands::set(&reg_path, &service, port, proto(udp))?;
         }

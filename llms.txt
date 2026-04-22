@@ -29,6 +29,16 @@ spout alloc <service> [--udp]
   Default is TCP. Pass --udp to allocate a UDP port; TCP and UDP are independent
   so the same number can be claimed once per protocol.
 
+spout alloc [-f <PATH>]
+  With no service name, reads a compose file (docker-compose.yml / .yaml /
+  compose.yml / .yaml, auto-detected in CWD, or `-f` override) and allocates one
+  port per declared service in a single registry transaction. Protocol is inferred
+  from each service's port spec (`/udp` suffix or long-form `protocol: udp` → UDP,
+  everything else → TCP). Multi-port services get the first port plus a stderr
+  warning. Services without a `ports:` block are skipped. Idempotent: existing
+  registrations keep their ports. Output is a tabular summary.
+  MUTATES REGISTRY. Exit code 8 if the compose file is missing or malformed.
+
 spout set <service> <port> [--udp]
   Manually registers a specific port for <service>. MUTATES REGISTRY.
   Exits with an error if the port is claimed by another project on the same
@@ -81,6 +91,7 @@ The distinction exists so agents can probe the registry without accidental side 
 5  Port already claimed by another project
 6  Port already in use by OS
 7  I/O error (e.g., stdout or stdin closed mid-command)
+8  Compose file missing or malformed (for `spout alloc`)
 
 ## Integration with varlock
 
