@@ -18,10 +18,7 @@ pub fn run(
     service: &str,
     project_override: Option<&str>,
 ) -> Result<u16, SpoutError> {
-    let project = match project_override {
-        Some(p) => p.to_owned(),
-        None => project::current_project()?,
-    };
+    let project = project::resolve_override(project_override)?;
     registry::with_lock(registry_path, |r| {
         let protocol = r
             .projects
@@ -60,7 +57,10 @@ mod tests {
         let port = run(&path, "postgres", None).unwrap();
         assert!((20_000..=32_767).contains(&port));
         // The entry still exists — remove + alloc is atomic under the lock.
-        assert_eq!(registry::read(&path).unwrap().get(&proj, "postgres"), Some(port));
+        assert_eq!(
+            registry::read(&path).unwrap().get(&proj, "postgres"),
+            Some(port)
+        );
     }
 
     #[test]

@@ -48,10 +48,7 @@ fn rm_one(
     service: &str,
     project: Option<&str>,
 ) -> Result<String, SpoutError> {
-    let project = match project {
-        Some(p) => p.to_owned(),
-        None => project::current_project()?,
-    };
+    let project = project::resolve_override(project)?;
     registry::with_lock(registry_path, |r| {
         r.remove(&project, service, "user requested")
             .ok_or(SpoutError::ServiceNotRegistered)?;
