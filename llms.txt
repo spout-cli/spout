@@ -82,7 +82,7 @@ CLI env var assignment takes precedence over .env files in Unix, so inline spout
 
 ## Project name inference
 
-spout uses `basename $PWD` as the project name, matching Docker Compose's convention. Running `spout get postgres` from `/projects/acme` looks up the postgres port for the `acme` project.
+spout infers project identity from your git remote, falling back to git root, and finally to your absolute working directory. Running `spout get postgres` from any subdirectory of a checked-out repo looks up the postgres port for that repo's identity, so two repos sharing a basename across different parent directories don't collide.
 
 No init command, no config file, no flag required.
 
