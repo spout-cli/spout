@@ -1,6 +1,5 @@
 //! Scan the registry for stale-entry candidates, and format the
-//! dry-run report. The mode handlers (interactive, bulk) live in
-//! `super` and operate on the `Candidate` slice this module produces.
+//! dry-run report.
 
 use std::path::Path;
 
@@ -8,8 +7,6 @@ use crate::allocator;
 use crate::date;
 use crate::format;
 use crate::registry::{Entry, Registry};
-
-const DEFAULT_OLDER_THAN: u64 = 90;
 
 #[derive(Debug, PartialEq)]
 pub(super) enum StaleReason {
@@ -50,11 +47,17 @@ pub(super) fn scan<'a>(reg: &'a Registry, older_than: u64) -> Vec<Candidate<'a>>
     out
 }
 
-pub(super) fn format_report(reg: &Registry, candidates: &[Candidate<'_>]) -> String {
+pub(super) fn nothing_to_prune(older_than: u64) -> String {
+    format!("Nothing to prune (all registrations < {older_than}d, all project paths present).")
+}
+
+pub(super) fn format_report(
+    reg: &Registry,
+    older_than: u64,
+    candidates: &[Candidate<'_>],
+) -> String {
     if candidates.is_empty() {
-        return format!(
-            "Nothing to prune (all registrations < {DEFAULT_OLDER_THAN}d, all project paths present)."
-        );
+        return nothing_to_prune(older_than);
     }
     let bound = allocator::probe_bound_ports(reg);
     let mut out = String::from("Stale candidates:\n");
@@ -96,6 +99,7 @@ pub(super) fn format_report(reg: &Registry, candidates: &[Candidate<'_>]) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::date::iso_days_ago;
     use crate::protocol::Protocol;
     use tempfile::TempDir;
 
@@ -114,12 +118,6 @@ mod tests {
                 protocol: Protocol::default(),
             },
         );
-    }
-
-    fn iso_days_ago(n: i64) -> String {
-        let today_days = date::days_between("1970-01-01", &date::today_iso()).unwrap();
-        let (y, m, d) = date::civil_from_days(today_days - n);
-        format!("{y:04}-{m:02}-{d:02}")
     }
 
     #[test]
@@ -161,9 +159,9 @@ mod tests {
     }
 
     #[test]
-    fn format_report_says_nothing_to_prune_on_empty() {
-        let reg = Registry::default();
-        assert!(format_report(&reg, &[]).contains("Nothing to prune"));
+    fn nothing_to_prune_uses_the_actual_cutoff() {
+        assert!(nothing_to_prune(30).contains("< 30d"));
+        assert!(nothing_to_prune(180).contains("< 180d"));
     }
 
     #[test]
@@ -173,7 +171,7 @@ mod tests {
         seed(&mut reg, "proj-a", "beta", 20_002, &iso_days_ago(150));
         seed(&mut reg, "proj-b", "gamma", 20_003, &iso_days_ago(200));
         let candidates = scan(&reg, 90);
-        let out = format_report(&reg, &candidates);
+        let out = format_report(&reg, 90, &candidates);
         assert!(out.contains("proj-a"));
         assert!(out.contains("proj-b"));
         assert!(out.contains("3 candidates across 2 projects"), "got {out}");

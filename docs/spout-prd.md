@@ -263,6 +263,7 @@ This contract is non-negotiable. Breaking it breaks agent pipelines.
 | `4` | Registry version unsupported |
 | `5` | Port already registered to another project (for `set`) |
 | `6` | Port already in use by OS (for `set`) |
+| `7` | I/O error (e.g., stdout/stdin closed mid-command) |
 
 Exit codes are stable API. They are documented and must not change between versions.
 

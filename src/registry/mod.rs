@@ -1,9 +1,4 @@
-//! Registry schema — data types and their methods.
-//!
-//! The on-disk file I/O (`read`, `write`, `with_lock`, path helpers)
-//! lives in `io.rs`; this module owns the pure in-memory shape. The
-//! `pub use io::*` below means callers continue to `use
-//! crate::registry::{read, ...}` unchanged.
+//! Registry schema — data types and their methods. On-disk I/O in `io.rs`.
 
 use std::collections::HashMap;
 
@@ -13,6 +8,11 @@ use crate::date::today_iso;
 use crate::protocol::Protocol;
 
 pub mod io;
+// Re-export what production code uses via the short path
+// `crate::registry::*`. `write` and `lock_path` are test-only callers
+// (via `with_lock` for prod); they stay reachable at `registry::io::*`
+// but aren't re-exported — clippy's `unused_imports` flags a `pub use`
+// whose only downstream consumer is a `#[cfg(test)]` module.
 pub use io::{read, registry_path, with_lock};
 
 pub const CURRENT_VERSION: u32 = 2;

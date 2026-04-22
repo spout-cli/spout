@@ -34,6 +34,9 @@ pub enum SpoutError {
 
     #[error("port {port}/{protocol} is already in use by the operating system")]
     PortInUse { port: u16, protocol: Protocol },
+
+    #[error("I/O error: {0}")]
+    Io(String),
 }
 
 impl SpoutError {
@@ -45,6 +48,7 @@ impl SpoutError {
             Self::RegistryVersionUnknown(_) => 4,
             Self::PortAlreadyClaimed { .. } => 5,
             Self::PortInUse { .. } => 6,
+            Self::Io(_) => 7,
         }
     }
 }
@@ -96,6 +100,12 @@ mod tests {
             protocol: Protocol::Tcp,
         };
         assert_eq!(err.exit_code(), 6);
+    }
+
+    #[test]
+    fn io_exits_seven() {
+        let err = SpoutError::Io("broken pipe".into());
+        assert_eq!(err.exit_code(), 7);
     }
 
     #[test]

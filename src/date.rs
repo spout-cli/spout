@@ -47,9 +47,19 @@ pub fn days_ago(from: &str) -> Option<i64> {
     days_between(from, &today_iso())
 }
 
+/// Test-only: today's date offset by N days, as a `YYYY-MM-DD` string.
+/// Lives here (not in each test module) so the two prune test modules
+/// don't duplicate the civil-arithmetic dance.
+#[cfg(test)]
+pub(crate) fn iso_days_ago(n: i64) -> String {
+    let today_days = days_between("1970-01-01", &today_iso()).unwrap();
+    let (y, m, d) = civil_from_days(today_days - n);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Convert days-since-epoch to (year, month, day) using Hinnant's algorithm.
 /// <https://howardhinnant.github.io/date_algorithms.html#civil_from_days>
-pub(crate) fn civil_from_days(days: i64) -> (i64, u64, u64) {
+fn civil_from_days(days: i64) -> (i64, u64, u64) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64;
