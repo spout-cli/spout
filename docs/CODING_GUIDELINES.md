@@ -177,6 +177,7 @@ src/
   tui.rs           # Ratatui UI — only loaded when stdout is a TTY
 docs/
   planning/
+    README.md        # Numbering convention and stage index
     01-planning.md   # Architecture decisions before coding starts
     01-learning.md   # Learning doc after stage 1 complete
     ...              # One planning + one learning doc per stage
@@ -194,10 +195,12 @@ tests/
 
 ### Docs directory
 
-Every meaningful stage of development produces two documents in `docs/planning/`:
+Every **stage** — a coherent multi-commit design effort — produces two documents in `docs/planning/`:
 
 - **`NN-planning.md`** — written *before* coding begins. What are we building? What are the design options? What did we decide and why?
 - **`NN-learning.md`** — written *after* the stage is complete. What did we learn? What surprised us? What would we do differently?
+
+Standalone commits — single-feature additions, CI/infra work, cleanup, docs — don't need the bookends. See [`docs/planning/README.md`](planning/README.md) for the numbering convention.
 
 These docs are mandatory, not optional. They are for future contributors and future agents. They capture the *why*, not just the *what*.
 
@@ -419,5 +422,5 @@ A piece of work is done when:
 6. No function has more than 4 arguments
 7. No `unwrap()` or `expect()` outside tests
 8. stdout/stderr contract respected
-9. The relevant `docs/planning/NN-learning.md` is written
+9. For stage work: `docs/planning/NN-learning.md` is written
 10. CI passes on push
