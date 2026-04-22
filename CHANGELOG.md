@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- `spout alloc` (with no service name) now reads a compose file from the current directory and allocates a port per declared service in a single registry transaction. Auto-detects `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` (same four names used for monorepo detection). `-f, --file <PATH>` overrides. Protocol is inferred from the port spec (`/udp` suffix or long-form `protocol: udp` → UDP; everything else → TCP). Multi-port services allocate the first and warn on stderr. Idempotent: re-running returns the same ports. Exit code 8 when the file is missing or YAML is malformed (new `ComposeNotFound` / `ComposeInvalid` error variants). Output is a tabular summary: `postgres 20000 tcp` one row per service.
 - UDP support via `--udp` flag on `spout alloc`, `spout set`, and `spout check`. TCP remains the default, so every existing invocation is byte-identical. TCP and UDP registrations at the same port number coexist — a TCP claim on 5432 does not block UDP 5432, matching kernel semantics.
 - `spout whois <port>` now surfaces every registration for that port across both protocols, sorted TCP first. One line per match: `5432/tcp: project/service (active, allocated DATE)`.
 - `spout ls` gains a `PROTO` column in the TUI; plain-text output suffixes the port as `port/proto` on every row. Service rows sort by protocol then service name, so TCP groups above UDP at the same port.
