@@ -100,7 +100,7 @@ mod tests {
             SpoutError::RegistryVersionUnknown(99),
             SpoutError::PortAlreadyClaimed {
                 port: 5432,
-                project: "tyfi".into(),
+                project: "myapp".into(),
             },
             SpoutError::PortInUse(6379),
         ];

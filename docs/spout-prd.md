@@ -64,7 +64,7 @@ spout alloc postgres # same identity regardless of cwd within the repo
 
 Identity is cached per-process via a `OnceLock`, so the `git` shell-outs run at most once per invocation even when multiple command handlers would touch `current_project()`.
 
-**Rationale vs basename:** The original design used `basename $PWD`, matching Docker Compose's convention. That silently collides when two repos share a basename across different parent directories (`/work/tyfi` and `/home/personal/tyfi` both registered as "tyfi"). Git-remote identity is stable across filesystem moves and unique across the whole host. Basename is still effectively the identity for non-git directories, via the CWD-path fallback.
+**Rationale vs basename:** The original design used `basename $PWD`, matching Docker Compose's convention. That silently collides when two repos share a basename across different parent directories (`/work/myapp` and `/home/personal/myapp` both registered as "myapp"). Git-remote identity is stable across filesystem moves and unique across the whole host. Basename is still effectively the identity for non-git directories, via the CWD-path fallback.
 
 **Deferred to follow-up:** Compose-file inference (`spout alloc` with no args, parsed from `docker-compose.yml` to allocate for every declared service). Bind-mount source path detection for containerised dev environments. Both are pure ergonomic wins on top of the identity layer — not MVP.
 

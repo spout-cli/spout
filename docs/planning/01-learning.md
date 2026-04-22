@@ -30,7 +30,7 @@ Dropping the default-ports table also simplified `services.rs` from a planned ~5
 
 ### 2. Basename project identity
 
-The plan used `basename $PWD` for project name, matching Docker Compose's convention. Silent collision mode: `/work/tyfi` and `/home/personal/tyfi` both register as "tyfi" and one overwrites the other.
+The plan used `basename $PWD` for project name, matching Docker Compose's convention. Silent collision mode: `/work/myapp` and `/home/personal/myapp` both register as "myapp" and one overwrites the other.
 
 **Fix:** layered identity — git remote URL → git root path → CWD path. Git-remote identity survives filesystem moves, clones across machines, and doesn't silently collide. The `git` shell-out is cached via `OnceLock` so the 60–100ms cold cost is paid once per process, not per command.
 
