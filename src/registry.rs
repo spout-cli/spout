@@ -96,11 +96,13 @@ impl Registry {
         Some(entry.port)
     }
 
-    /// Live-registry port ownership check. Returns (project, service) if claimed.
-    pub fn is_port_claimed(&self, port: u16) -> Option<(String, String)> {
+    /// Live-registry port ownership check. Returns (project, service) if
+    /// `port` is claimed on `protocol`. TCP and UDP registrations at the
+    /// same number are independent — a TCP claim does not block a UDP one.
+    pub fn is_port_claimed(&self, port: u16, protocol: Protocol) -> Option<(String, String)> {
         for (project, services) in &self.projects {
             for (service, entry) in services {
-                if entry.port == port {
+                if entry.port == port && entry.protocol == protocol {
                     return Some((project.clone(), service.clone()));
                 }
             }
@@ -288,14 +290,14 @@ mod tests {
     fn is_port_claimed_finds_existing() {
         let mut r = Registry::default();
         r.set("myproj", "postgres", 19456);
-        let owner = r.is_port_claimed(19456).unwrap();
+        let owner = r.is_port_claimed(19456, Protocol::Tcp).unwrap();
         assert_eq!(owner, ("myproj".to_owned(), "postgres".to_owned()));
     }
 
     #[test]
     fn is_port_claimed_returns_none_for_free() {
         let r = Registry::default();
-        assert!(r.is_port_claimed(19456).is_none());
+        assert!(r.is_port_claimed(19456, Protocol::Tcp).is_none());
     }
 
     #[test]

@@ -87,6 +87,31 @@ mod tests {
     }
 
     #[test]
+    fn is_port_claimed_filters_by_protocol() {
+        // A TCP claim on port 5432 must not block a UDP query at the same
+        // number — real kernels treat these as independent.
+        let mut r = Registry::default();
+        r.set("p", "tcp-svc", 5432);
+        assert!(r.is_port_claimed(5432, Protocol::Tcp).is_some());
+        assert!(r.is_port_claimed(5432, Protocol::Udp).is_none());
+    }
+
+    #[test]
+    fn is_port_claimed_finds_udp_registration() {
+        let mut r = Registry::default();
+        r.projects.entry("p".into()).or_default().insert(
+            "dns".into(),
+            Entry {
+                port: 5353,
+                allocated: "2026-04-22".into(),
+                protocol: Protocol::Udp,
+            },
+        );
+        let owner = r.is_port_claimed(5353, Protocol::Udp).unwrap();
+        assert_eq!(owner, ("p".to_owned(), "dns".to_owned()));
+    }
+
+    #[test]
     fn v2_round_trips_udp_entry() {
         let (_dir, path) = temp_path();
         let mut r = Registry::default();
