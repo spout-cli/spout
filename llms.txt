@@ -55,6 +55,11 @@ spout rm --project [NAME] [--yes | --dry-run]
   --dry-run lists without removing. Each removed service lands in history
   with reason "user requested (project rm)". MUTATES REGISTRY.
 
+spout realloc <service> [--project <NAME>]
+  Atomic shortcut for rm + alloc on the same service. Preserves the
+  existing entry's protocol. History records reason "reallocated".
+  Exit code 1 if <service> isn't registered. MUTATES REGISTRY.
+
 spout ls
   Lists all registered projects and their ports.
   Use --project to filter to the current project only.
