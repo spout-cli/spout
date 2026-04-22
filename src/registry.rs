@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::date::today_iso;
 use crate::error::SpoutError;
+use crate::protocol::Protocol;
 
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 const SPOUT_REGISTRY_ENV: &str = "SPOUT_REGISTRY";
 
@@ -34,6 +35,8 @@ pub struct Registry {
 pub struct Entry {
     pub port: u16,
     pub allocated: String,
+    #[serde(default)]
+    pub protocol: Protocol,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -44,6 +47,8 @@ pub struct HistoryEntry {
     pub allocated: String,
     pub released: String,
     pub reason: String,
+    #[serde(default)]
+    pub protocol: Protocol,
 }
 
 impl Default for Registry {
@@ -67,6 +72,7 @@ impl Registry {
             Entry {
                 port,
                 allocated: today_iso(),
+                protocol: Protocol::default(),
             },
         );
     }
@@ -85,6 +91,7 @@ impl Registry {
             allocated: entry.allocated,
             released: today_iso(),
             reason: reason.to_owned(),
+            protocol: entry.protocol,
         });
         Some(entry.port)
     }
@@ -132,7 +139,7 @@ pub fn read(path: &Path) -> Result<Registry, SpoutError> {
         Ok(contents) => {
             let registry: Registry = serde_json::from_str(&contents)
                 .map_err(|e| SpoutError::RegistryCorrupt(format!("parse failed: {e}")))?;
-            if registry.version != CURRENT_VERSION {
+            if registry.version != 1 && registry.version != CURRENT_VERSION {
                 return Err(SpoutError::RegistryVersionUnknown(registry.version));
             }
             Ok(registry)
@@ -187,6 +194,7 @@ where
         .map_err(|e| SpoutError::RegistryCorrupt(format!("acquire lock: {e}")))?;
 
     let mut r = read(registry)?;
+    r.version = CURRENT_VERSION;
     let result = f(&mut r)?;
     write(registry, &r)?;
     Ok(result)
@@ -300,6 +308,7 @@ mod tests {
             allocated: "2025-09-01".into(),
             released: "2026-01-01".into(),
             reason: "x".into(),
+            protocol: Protocol::default(),
         });
         r.history.push(HistoryEntry {
             project: "b".into(),
@@ -308,6 +317,7 @@ mod tests {
             allocated: "2026-02-01".into(),
             released: "2026-06-01".into(),
             reason: "y".into(),
+            protocol: Protocol::default(),
         });
         let entries = r.history_for_port(19456);
         assert_eq!(entries.len(), 2);

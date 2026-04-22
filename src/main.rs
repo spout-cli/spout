@@ -6,6 +6,7 @@ mod error;
 mod format;
 mod project;
 mod project_markers;
+mod protocol;
 mod registry;
 mod services;
 mod tui;

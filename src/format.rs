@@ -82,6 +82,7 @@ mod tests {
         Entry {
             port,
             allocated: allocated.to_owned(),
+            protocol: crate::protocol::Protocol::default(),
         }
     }
 
