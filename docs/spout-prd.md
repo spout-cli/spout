@@ -526,7 +526,6 @@ These were open questions, now closed:
 - **License** — dual `MIT OR Apache-2.0`, the Rust community standard.
 - **Crate pinning** — commit `Cargo.lock` (binary crate convention). No premature pinning in `Cargo.toml`.
 - **File locking** — `fd-lock` crate. `fs2` is unmaintained.
-- **`spout env`** — dropped. Varlock owns env management. Makefile pattern covers the raw case.
 - **GitHub organisation** — `spout-cli`. Free, same credentials as personal account, decouples the tool from a personal profile, install URLs are stable.
 - **Shell completions** — ship with v1.0 via `clap_complete`. cargo-dist bundles them into the Homebrew formula automatically.
 - **Project identity** (resolved 2026-04-20) — layered: git remote URL → git root path → CWD path. Originally was `basename $PWD`; changed when that revealed silent collisions between same-basename repos in different directories.
