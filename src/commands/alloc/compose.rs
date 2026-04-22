@@ -3,12 +3,6 @@
 //! first port declaration. No filesystem access, no lock access —
 //! just `&str` in, `Vec<ComposeService>` out.
 
-// `parse`, `ComposeService`, and the deserialize-only internals are
-// consumed by the compose batch-alloc entry point landing in
-// Commit 4; tests reach them today. Mirrors the Stage 6 pattern in
-// `src/date.rs` (removed in Commit 5's docs pass).
-#![cfg_attr(not(test), allow(dead_code))]
-
 use serde::Deserialize;
 
 use crate::error::SpoutError;
