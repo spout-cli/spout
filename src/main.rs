@@ -18,6 +18,7 @@ use tracing_subscriber::EnvFilter;
 
 use cli::{Cli, Commands};
 use error::SpoutError;
+use protocol::Protocol;
 
 fn main() {
     let parsed = Cli::parse();
@@ -51,12 +52,12 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
             let port = commands::get(&reg_path, &service)?;
             println!("{port}");
         }
-        Commands::Alloc { service } => {
-            let port = commands::alloc(&reg_path, &service)?;
+        Commands::Alloc { service, udp } => {
+            let port = commands::alloc(&reg_path, &service, proto(udp))?;
             println!("{port}");
         }
-        Commands::Set { service, port } => {
-            commands::set(&reg_path, &service, port)?;
+        Commands::Set { service, port, udp } => {
+            commands::set(&reg_path, &service, port, proto(udp))?;
         }
         Commands::Rm { service } => {
             commands::rm(&reg_path, &service)?;
@@ -71,8 +72,8 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 println!("{out}");
             }
         }
-        Commands::Check { port } => {
-            if !commands::check(port) {
+        Commands::Check { port, udp } => {
+            if !commands::check(port, proto(udp)) {
                 exit(1);
             }
         }
@@ -95,4 +96,12 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
         }
     }
     Ok(())
+}
+
+fn proto(udp: bool) -> Protocol {
+    if udp {
+        Protocol::Udp
+    } else {
+        Protocol::Tcp
+    }
 }

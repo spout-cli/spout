@@ -4,6 +4,8 @@
 
 use thiserror::Error;
 
+use crate::protocol::Protocol;
+
 #[derive(Debug, Error)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub enum SpoutError {
@@ -23,11 +25,15 @@ pub enum SpoutError {
     #[error("registry version {0} is not supported")]
     RegistryVersionUnknown(u32),
 
-    #[error("port {port} is already registered to project '{project}'")]
-    PortAlreadyClaimed { port: u16, project: String },
+    #[error("port {port}/{protocol} is already registered to project '{project}'")]
+    PortAlreadyClaimed {
+        port: u16,
+        protocol: Protocol,
+        project: String,
+    },
 
-    #[error("port {0} is already in use by the operating system")]
-    PortInUse(u16),
+    #[error("port {0}/{1} is already in use by the operating system")]
+    PortInUse(u16, Protocol),
 }
 
 impl SpoutError {
@@ -38,7 +44,7 @@ impl SpoutError {
             Self::RegistryCorrupt(_) => 3,
             Self::RegistryVersionUnknown(_) => 4,
             Self::PortAlreadyClaimed { .. } => 5,
-            Self::PortInUse(_) => 6,
+            Self::PortInUse(..) => 6,
         }
     }
 }
@@ -77,6 +83,7 @@ mod tests {
     fn port_already_claimed_exits_five() {
         let err = SpoutError::PortAlreadyClaimed {
             port: 5432,
+            protocol: Protocol::Tcp,
             project: "other".into(),
         };
         assert_eq!(err.exit_code(), 5);
@@ -84,7 +91,7 @@ mod tests {
 
     #[test]
     fn port_in_use_exits_six() {
-        assert_eq!(SpoutError::PortInUse(5432).exit_code(), 6);
+        assert_eq!(SpoutError::PortInUse(5432, Protocol::Tcp).exit_code(), 6);
     }
 
     #[test]
@@ -100,12 +107,26 @@ mod tests {
             SpoutError::RegistryVersionUnknown(99),
             SpoutError::PortAlreadyClaimed {
                 port: 5432,
+                protocol: Protocol::Tcp,
                 project: "myapp".into(),
             },
-            SpoutError::PortInUse(6379),
+            SpoutError::PortInUse(6379, Protocol::Udp),
         ];
         for v in &variants {
             assert!(!v.to_string().is_empty());
         }
+    }
+
+    #[test]
+    fn port_errors_mention_the_protocol() {
+        let claimed = SpoutError::PortAlreadyClaimed {
+            port: 5432,
+            protocol: Protocol::Udp,
+            project: "p".into(),
+        };
+        assert!(claimed.to_string().contains("5432/udp"), "got {claimed}");
+
+        let in_use = SpoutError::PortInUse(53, Protocol::Udp);
+        assert!(in_use.to_string().contains("53/udp"), "got {in_use}");
     }
 }

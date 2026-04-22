@@ -66,13 +66,13 @@ impl Registry {
         self.projects.get(project)?.get(service).map(|e| e.port)
     }
 
-    pub fn set(&mut self, project: &str, service: &str, port: u16) {
+    pub fn set(&mut self, project: &str, service: &str, port: u16, protocol: Protocol) {
         self.projects.entry(project.to_owned()).or_default().insert(
             service.to_owned(),
             Entry {
                 port,
                 allocated: today_iso(),
-                protocol: Protocol::default(),
+                protocol,
             },
         );
     }
@@ -96,9 +96,8 @@ impl Registry {
         Some(entry.port)
     }
 
-    /// Live-registry port ownership check. Returns (project, service) if
-    /// `port` is claimed on `protocol`. TCP and UDP registrations at the
-    /// same number are independent — a TCP claim does not block a UDP one.
+    /// Live-registry ownership of (port, protocol). TCP and UDP at the same
+    /// number are independent — one does not block the other.
     pub fn is_port_claimed(&self, port: u16, protocol: Protocol) -> Option<(String, String)> {
         for (project, services) in &self.projects {
             for (service, entry) in services {
@@ -127,9 +126,8 @@ pub fn registry_path() -> Result<PathBuf, SpoutError> {
         .ok_or_else(|| SpoutError::RegistryCorrupt("cannot determine home directory".to_owned()))
 }
 
-/// Derive the lock file path from the registry path by replacing the extension.
-/// `/tmp/foo.json` → `/tmp/foo.lock`. Critical for test isolation — every test
-/// using a unique SPOUT_REGISTRY gets a unique lock file, so tests don't contend.
+/// `/tmp/foo.json` → `/tmp/foo.lock`. Critical for test isolation — every
+/// test using a unique SPOUT_REGISTRY gets a unique lock file.
 pub fn lock_path(registry: &Path) -> PathBuf {
     let mut p = registry.to_path_buf();
     p.set_extension("lock");
@@ -242,7 +240,7 @@ mod tests {
     fn write_then_read_round_trip() {
         let (_dir, path) = temp_registry();
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         write(&path, &r).unwrap();
         let back = read(&path).unwrap();
         assert_eq!(back.get("myproj", "postgres"), Some(19456));
@@ -251,7 +249,7 @@ mod tests {
     #[test]
     fn registry_set_get_remove_roundtrip() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         assert_eq!(r.get("myproj", "postgres"), Some(19456));
 
         let removed = r.remove("myproj", "postgres", "test");
@@ -265,7 +263,7 @@ mod tests {
     #[test]
     fn remove_carries_allocated_date_into_history() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         let live_allocated = r
             .projects
             .get("myproj")
@@ -281,7 +279,7 @@ mod tests {
     #[test]
     fn remove_empties_project_entry() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         r.remove("myproj", "postgres", "test");
         assert!(!r.projects.contains_key("myproj"));
     }
@@ -289,7 +287,7 @@ mod tests {
     #[test]
     fn is_port_claimed_finds_existing() {
         let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456);
+        r.set("myproj", "postgres", 19456, Protocol::default());
         let owner = r.is_port_claimed(19456, Protocol::Tcp).unwrap();
         assert_eq!(owner, ("myproj".to_owned(), "postgres".to_owned()));
     }
@@ -331,7 +329,7 @@ mod tests {
     fn with_lock_applies_mutation() {
         let (_dir, path) = temp_registry();
         with_lock(&path, |r| {
-            r.set("myproj", "postgres", 19456);
+            r.set("myproj", "postgres", 19456, Protocol::default());
             Ok(())
         })
         .unwrap();
@@ -380,7 +378,12 @@ mod tests {
             handles.push(thread::spawn(move || {
                 let _ = &keep;
                 with_lock(&path, |r| {
-                    r.set("myproj", &format!("svc{i}"), 20_000 + i);
+                    r.set(
+                        "myproj",
+                        &format!("svc{i}"),
+                        20_000 + i,
+                        Protocol::default(),
+                    );
                     Ok(())
                 })
                 .unwrap();

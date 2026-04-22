@@ -5,12 +5,23 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Default, Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Protocol {
     #[default]
     Tcp,
     Udp,
+}
+
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+        })
+    }
 }
 
 #[cfg(test)]
@@ -46,6 +57,17 @@ mod tests {
         assert!(serde_json::from_str::<Protocol>(r#""sctp""#).is_err());
     }
 
+    #[test]
+    fn display_renders_lowercase() {
+        assert_eq!(Protocol::Tcp.to_string(), "tcp");
+        assert_eq!(Protocol::Udp.to_string(), "udp");
+    }
+
+    #[test]
+    fn ord_places_tcp_before_udp() {
+        assert!(Protocol::Tcp < Protocol::Udp);
+    }
+
     // Integration with the registry schema: these tests exercise how
     // Protocol rides along inside Entry/HistoryEntry and how the v1→v2
     // migration behaves. Lives here rather than in registry.rs to keep
@@ -79,7 +101,7 @@ mod tests {
         let (_dir, path) = temp_path();
         fs::write(&path, r#"{"version":1,"projects":{},"history":[]}"#).unwrap();
         with_lock(&path, |r| {
-            r.set("p", "s", 20001);
+            r.set("p", "s", 20001, Protocol::default());
             Ok(())
         })
         .unwrap();
@@ -91,7 +113,7 @@ mod tests {
         // A TCP claim on port 5432 must not block a UDP query at the same
         // number — real kernels treat these as independent.
         let mut r = Registry::default();
-        r.set("p", "tcp-svc", 5432);
+        r.set("p", "tcp-svc", 5432, Protocol::default());
         assert!(r.is_port_claimed(5432, Protocol::Tcp).is_some());
         assert!(r.is_port_claimed(5432, Protocol::Udp).is_none());
     }
