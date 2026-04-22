@@ -1,4 +1,4 @@
-# `spout gc` — clean up stale port registrations
+# `spout prune` — clean up stale port registrations
 
 _Status: proposal, 2026-04-22. Not committed to a stage yet._
 
@@ -10,9 +10,9 @@ registrations from projects they've deleted, prototypes they've abandoned,
 and experiments they've moved past. The cleanup path today is manual:
 `spout rm <service>` for each one, which requires remembering what's there.
 
-PRD §18 reserves `spout gc` for "stale-entry audit; surface-only by
-default; `--prune` for auto-removal." This doc works through how to
-build it without violating spout's design commitments.
+PRD §18 reserves `spout prune` for "stale-entry audit with optional
+removal." This doc works through how to build it without violating
+spout's design commitments.
 
 ## Constraints
 
@@ -47,20 +47,23 @@ the clone on disk without a heuristic scan of `$HOME`.
 ## Proposed CLI shape
 
 ```
-spout gc                              # surface candidates; no changes
-spout gc --older-than <DAYS>          # tune age cutoff (default: 90)
-spout gc --prune                      # interactive per-entry confirmation
-spout gc --prune --yes                # bulk remove without prompts
+spout prune                           # interactive per-entry prompts (safe default)
+spout prune --dry-run                 # surface candidates only; no changes
+spout prune --yes                     # bulk remove without prompts
+spout prune --older-than <DAYS>       # tune age cutoff (default: 90)
 ```
+
+`--dry-run` and `--yes` are mutually exclusive — `--dry-run --yes`
+exits with a usage error.
 
 **Candidate definition (default):** a registration is a candidate if
 `allocated` > 90 days ago, **or** its identity is an absolute path
 that no longer exists on disk.
 
-**Output with no `--prune`:**
+**With `--dry-run`:**
 
 ```
-$ spout gc
+$ spout prune --dry-run
 Stale candidates:
 
   github.com/acme/old-project
@@ -71,20 +74,20 @@ Stale candidates:
     ○ clickhouse      21040  allocated 2025-09-20  (214d)
 
 3 candidates across 2 projects.
-Rerun with --prune to clean up, or --prune --yes to skip prompts.
+Rerun `spout prune` to remove interactively, or `spout prune --yes` to skip prompts.
 ```
 
 Nothing stale:
 
 ```
-$ spout gc
+$ spout prune --dry-run
 Nothing to prune (all registrations < 90d, all project paths present).
 ```
 
-**With `--prune` (interactive stdin):**
+**Default (interactive stdin):**
 
 ```
-$ spout gc --prune
+$ spout prune
 Remove github.com/acme/old-project/postgres?
   allocated 2025-03-15 (403d ago, free ○)
   [y/N/q/!] y
@@ -101,13 +104,15 @@ Done: 3 removed, 0 kept.
 `y`=yes, `N`=no (default on bare Enter), `q`=quit immediately, `!`=yes
 to all remaining.
 
-**With `--prune --yes`:** prints each removal and proceeds without
-stopping.
+If there are no candidates, `spout prune` prints the same "nothing to
+prune" message as `--dry-run` and exits 0 without prompting.
+
+**With `--yes`:** prints each removal and proceeds without stopping.
 
 ## History preservation
 
 Existing `rm` writes `reason: "user requested"` into `history`.
-`gc --prune` uses richer reason strings so `spout whois <port> --history`
+`spout prune` uses richer reason strings so `spout whois <port> --history`
 stays useful:
 
 - `"pruned: stale (older than 90d)"` — age-triggered
@@ -128,7 +133,7 @@ field.
 2. **Default age cutoff.** 90 days feels right for this user's rhythm;
    only real use will tell. Always overridable via `--older-than`.
 
-3. **Git-remote resolution as opt-in flag.** `spout gc --check-remotes`
+3. **Git-remote resolution as opt-in flag.** `spout prune --check-remotes`
    would attempt `git ls-remote` for git-remote identities. Explicit
    flag so default stays offline. Deferred.
 
@@ -149,12 +154,14 @@ field.
 
 1. Seed a test registry with mixed ages: fresh, 95d, 200d, plus an
    absolute-path identity pointing at a deleted directory.
-2. `spout gc` lists only the 95d, 200d, and missing-path entries.
-3. `spout gc --older-than 365` lists only the 200d + missing-path.
-4. `spout gc --prune --yes` removes all candidates; re-running says
+2. `spout prune --dry-run` lists only the 95d, 200d, and missing-path
+   entries.
+3. `spout prune --dry-run --older-than 365` lists only the 200d +
+   missing-path.
+4. `spout prune --yes` removes all candidates; re-running says
    "nothing to prune." History contains entries with the right
    `reason` strings.
-5. `echo -e "y\nn\nq" | spout gc --prune` removes the first, keeps
+5. `echo -e "y\nn\nq" | spout prune` removes the first, keeps
    the second, quits on the third without touching remaining
    candidates.
 

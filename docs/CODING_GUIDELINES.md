@@ -139,7 +139,7 @@ All user-facing errors go to stderr. Port numbers and list output go to stdout. 
 
 ## UI: Ratatui
 
-`spout ls` and `spout gc` use [Ratatui](https://ratatui.rs) for their human-facing interactive display. All other commands remain plain stdout/stderr — agents call those commands programmatically and must not receive TUI output.
+`spout ls` and `spout prune` use [Ratatui](https://ratatui.rs) for their human-facing interactive display. All other commands remain plain stdout/stderr — agents call those commands programmatically and must not receive TUI output.
 
 **Rule:** Ratatui is only invoked when stdout is a TTY. If stdout is piped or redirected, fall back to plain text. Use `std::io::IsTerminal` to detect this.
 

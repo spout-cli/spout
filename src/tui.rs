@@ -31,9 +31,10 @@ use crate::format::port_status_glyph;
 use crate::registry::{Entry, Registry};
 use crate::services::{env_var_name, service_icon};
 
-const COLUMN_WIDTHS: [Constraint; 4] = [
+const COLUMN_WIDTHS: [Constraint; 5] = [
     Constraint::Length(28),
     Constraint::Length(7),
+    Constraint::Length(5),
     Constraint::Length(24),
     Constraint::Min(12),
 ];
@@ -180,6 +181,7 @@ fn column_header_table() -> Table<'static> {
     let header = Row::new(vec![
         Cell::from("SERVICE").style(Style::new().bold()),
         Cell::from("PORT").style(Style::new().bold()),
+        Cell::from("PROTO").style(Style::new().bold()),
         Cell::from("ENV VAR").style(Style::new().bold()),
         Cell::from("ALLOCATED").style(Style::new().bold()),
     ])
@@ -217,7 +219,7 @@ fn collect_service_rows(
     bound: &HashSet<u16>,
 ) -> Vec<Row<'static>> {
     let mut svcs: Vec<_> = services.iter().collect();
-    svcs.sort_by(|a, b| a.0.cmp(b.0));
+    svcs.sort_by(|a, b| (a.1.protocol, a.0).cmp(&(b.1.protocol, b.0)));
     svcs.into_iter()
         .map(|(svc, entry)| {
             let is_bound = bound.contains(&entry.port);
@@ -238,6 +240,7 @@ fn collect_service_rows(
             Row::new(vec![
                 Cell::from(label),
                 Cell::from(entry.port.to_string()).style(Style::new().fg(Color::Cyan)),
+                Cell::from(entry.protocol.as_str()).style(Style::new().dim()),
                 Cell::from(env_var_name(svc)).style(Style::new().fg(Color::Yellow)),
                 Cell::from(entry.allocated.clone()).style(Style::new().dim()),
             ])
@@ -256,6 +259,7 @@ mod tests {
             Entry {
                 port,
                 allocated: allocated.to_owned(),
+                protocol: crate::protocol::Protocol::default(),
             },
         );
     }
