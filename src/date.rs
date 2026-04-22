@@ -4,11 +4,6 @@
 //! pull in a date crate, since `YYYY-MM-DD` is the only format we need and
 //! each algorithm is ~10 lines of proven integer math.
 
-// The parse/diff helpers below ship one commit ahead of their first
-// production caller in `commands::prune`; keep them reachable to tests
-// without tripping dead-code warnings in the meantime.
-#![cfg_attr(not(test), allow(dead_code))]
-
 /// Today's date as `YYYY-MM-DD`.
 pub fn today_iso() -> String {
     let secs = std::time::SystemTime::now()
