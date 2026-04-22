@@ -92,6 +92,9 @@ spout alloc <service>       # register new port if needed       [MUTATES]
 spout alloc <service> --udp # same, UDP instead of TCP          [MUTATES]
 spout set <service> <port>  # manually register a port          [MUTATES]
 spout rm <service>          # remove a registration             [MUTATES]
+spout prune --dry-run       # surface stale registrations        [READ ONLY]
+spout prune                 # remove interactively (y/N/q/!)     [MUTATES]
+spout prune --yes           # bulk-remove without prompts        [MUTATES]
 spout ls                    # list all projects                 [READ ONLY]
 spout ls --project          # list only the current project     [READ ONLY]
 spout check <port>          # exit 0 if free, 1 if taken        [READ ONLY]
@@ -182,11 +185,33 @@ export SPOUT_PROJECT="my-monorepo/web"
 
 Unset or empty `SPOUT_PROJECT` falls through to auto-detect, which falls through to today's git-remote / git-root / CWD layering.
 
+### Cleaning up stale registrations
+
+Leases are permanent by design — your port stays yours until you explicitly release it. Over time that means the registry collects entries from deleted projects and one-off experiments. `spout prune` surfaces and removes them.
+
+```bash
+spout prune --dry-run           # list stale candidates; no changes
+spout prune                     # interactive per-entry [y/N/q/!]
+spout prune --yes               # bulk remove without prompts
+spout prune --older-than 180    # tune the age cutoff (default 90 days)
+```
+
+A registration is a candidate if its `allocated` date is older than the cutoff, **or** its project identity is an absolute filesystem path whose directory no longer exists (strong signal — truly orphaned). Git-remote-style identities are scanned for age only; no network probes.
+
+Interactive mode prompts once per candidate:
+
+- `y` remove this one
+- `N` (default on bare Enter) keep this one
+- `q` quit without touching remaining candidates
+- `!` remove this and all remaining candidates
+
+Pruned entries land in `history` with reasons like `pruned: stale (older than 90d)` or `pruned: project path missing`, so `spout whois <port> --history` later still explains where the port went.
+
 ### The mutation boundary
 
-`get`, `ls`, `check`, `whois`, and `completions` never touch the registry. You can call them speculatively from scripts or agents without side effects.
+`get`, `ls`, `check`, `whois`, and `completions` never touch the registry. You can call them speculatively from scripts or agents without side effects. `spout prune --dry-run` is also read-only.
 
-`alloc`, `set`, and `rm` mutate the registry and require a file lock. Call them intentionally.
+`alloc`, `set`, `rm`, and `spout prune` (without `--dry-run`) mutate the registry and require a file lock. Call them intentionally.
 
 ---
 
@@ -348,6 +373,7 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | 4    | Registry version unsupported           |
 | 5    | Port already registered to another project |
 | 6    | Port already in use by OS              |
+| 7    | I/O error (e.g., stdout or stdin closed mid-command) |
 
 ---
 
