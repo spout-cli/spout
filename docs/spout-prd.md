@@ -282,6 +282,7 @@ This contract is non-negotiable. Breaking it breaks agent pipelines.
 | `6` | Port already in use by OS (for `set`) |
 | `7` | I/O error (e.g., stdout/stdin closed mid-command) |
 | `8` | Compose file missing or malformed (for `spout alloc`) |
+| `9` | Usage error (invalid flag combination — e.g. `spout rm` with neither service nor `--project`) |
 
 Exit codes are stable API. They are documented and must not change between versions.
 

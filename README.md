@@ -438,6 +438,7 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | 6    | Port already in use by OS              |
 | 7    | I/O error (e.g., stdout or stdin closed mid-command) |
 | 8    | Compose file missing or malformed (for `spout alloc`) |
+| 9    | Usage error (invalid flag combination) |
 
 ---
 
