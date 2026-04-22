@@ -12,11 +12,12 @@
 //! Recovery is manual: `spout rm <service> && spout alloc <service>`.
 
 use std::collections::HashSet;
-use std::net::TcpListener;
+use std::net::{TcpListener, UdpSocket};
 use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::error::SpoutError;
+use crate::protocol::Protocol;
 use crate::registry::{self, Registry};
 
 pub const BASE_PORT: u16 = 20_000;
@@ -40,7 +41,7 @@ pub fn alloc(registry_path: &Path, project: &str, service: &str) -> Result<u16, 
             if claimed.contains(&candidate) {
                 continue;
             }
-            if !is_port_free_on_os(candidate) {
+            if !is_port_free_on_os(candidate, Protocol::default()) {
                 continue;
             }
             r.set(project, service, candidate);
@@ -55,17 +56,37 @@ pub fn alloc(registry_path: &Path, project: &str, service: &str) -> Result<u16, 
     })
 }
 
-/// True if `port` is bindable on IPv4 and (if available) IPv6.
+/// True if `port` is bindable for `protocol` on IPv4 and (if available) IPv6.
 ///
 /// The bind is immediately dropped — this is a test, not a reservation.
 /// There's an inherent TOCTOU gap between this check and any subsequent
 /// use of the port; in practice the window is microseconds and the 20000+
 /// range sees almost no non-spout binds.
-pub fn is_port_free_on_os(port: u16) -> bool {
+///
+/// TCP and UDP are independent on real kernels: TCP 5432 being taken does
+/// not imply UDP 5432 is taken, and vice versa. This probe respects that.
+pub fn is_port_free_on_os(port: u16, protocol: Protocol) -> bool {
+    match protocol {
+        Protocol::Tcp => is_tcp_port_free(port),
+        Protocol::Udp => is_udp_port_free(port),
+    }
+}
+
+fn is_tcp_port_free(port: u16) -> bool {
     if TcpListener::bind(("0.0.0.0", port)).is_err() {
         return false;
     }
     if ipv6_available() && TcpListener::bind(("::", port)).is_err() {
+        return false;
+    }
+    true
+}
+
+fn is_udp_port_free(port: u16) -> bool {
+    if UdpSocket::bind(("0.0.0.0", port)).is_err() {
+        return false;
+    }
+    if ipv6_available() && UdpSocket::bind(("::", port)).is_err() {
         return false;
     }
     true
@@ -81,7 +102,7 @@ pub fn probe_bound_ports(reg: &Registry) -> HashSet<u16> {
     reg.projects
         .values()
         .flat_map(|services| services.values())
-        .filter_map(|entry| (!is_port_free_on_os(entry.port)).then_some(entry.port))
+        .filter_map(|entry| (!is_port_free_on_os(entry.port, entry.protocol)).then_some(entry.port))
         .collect()
 }
 
@@ -156,21 +177,37 @@ mod tests {
     }
 
     #[test]
-    fn is_port_free_on_os_returns_true_for_free_port() {
-        // Use an ephemeral bind to find a known-free port, drop it, then
-        // check. Tiny race window but fine for this assertion.
+    fn is_port_free_on_os_returns_true_for_free_tcp_port() {
         let listener = TcpListener::bind("0.0.0.0:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
-        assert!(is_port_free_on_os(port));
+        assert!(is_port_free_on_os(port, Protocol::Tcp));
     }
 
     #[test]
-    fn is_port_free_on_os_returns_false_for_bound_port() {
+    fn is_port_free_on_os_returns_false_for_bound_tcp_port() {
         let listener = TcpListener::bind("0.0.0.0:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        assert!(!is_port_free_on_os(port));
+        assert!(!is_port_free_on_os(port, Protocol::Tcp));
         drop(listener);
+    }
+
+    #[test]
+    fn is_port_free_on_os_returns_false_for_bound_udp_port() {
+        use std::net::UdpSocket;
+        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        assert!(!is_port_free_on_os(port, Protocol::Udp));
+        drop(socket);
+    }
+
+    #[test]
+    fn tcp_and_udp_probes_are_independent() {
+        // Hold a TCP socket; the UDP port at the same number stays free.
+        let listener = TcpListener::bind("0.0.0.0:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!is_port_free_on_os(port, Protocol::Tcp));
+        assert!(is_port_free_on_os(port, Protocol::Udp));
     }
 
     #[test]

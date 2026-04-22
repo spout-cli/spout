@@ -35,7 +35,9 @@ pub fn set(registry_path: &Path, service: &str, port: u16) -> Result<(), SpoutEr
                 });
             }
         }
-        if r.get(&project, service) != Some(port) && !allocator::is_port_free_on_os(port) {
+        if r.get(&project, service) != Some(port)
+            && !allocator::is_port_free_on_os(port, crate::protocol::Protocol::default())
+        {
             return Err(SpoutError::PortInUse(port));
         }
         r.set(&project, service, port);
@@ -119,7 +121,7 @@ pub fn env(
 }
 
 pub fn check(port: u16) -> bool {
-    allocator::is_port_free_on_os(port)
+    allocator::is_port_free_on_os(port, crate::protocol::Protocol::default())
 }
 
 /// Whois result — `Some(message)` on hit, `None` on miss.
