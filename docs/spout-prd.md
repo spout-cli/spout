@@ -196,7 +196,9 @@ The `version` field is mandatory. If the version field is missing or unrecognise
 
 ```bash
 # Get a registered port for the current project [READ ONLY]
+# --project <NAME> reads from a different project (no cd required).
 spout get <service>
+spout get <service> --project <NAME>
 
 # Allocate a new port — finds free port, registers it, prints it [MUTATES]
 # Idempotent: if already registered, returns the existing port.
@@ -212,7 +214,16 @@ spout alloc -f compose.prod.yml
 spout set <service> <port>
 
 # Remove a registration (appends to history) [MUTATES]
+# --project <NAME> targets a service in another project.
+# With --project [NAME] and no service, removes EVERY service for that
+# project. Default mode prints a [y/N] confirm with the list; --yes
+# skips it; --dry-run previews without changes. Each removal records
+# reason "user requested (project rm)" in history.
 spout rm <service>
+spout rm <service> --project <NAME>
+spout rm --project [NAME]
+spout rm --project [NAME] --yes
+spout rm --project [NAME] --dry-run
 
 # List all registrations
 spout ls
