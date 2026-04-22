@@ -23,28 +23,35 @@ use crate::registry::{self, Registry};
 pub const BASE_PORT: u16 = 20_000;
 pub const MAX_PORT: u16 = 32_767;
 
-pub fn alloc(registry_path: &Path, project: &str, service: &str) -> Result<u16, SpoutError> {
+pub fn alloc(
+    registry_path: &Path,
+    project: &str,
+    service: &str,
+    protocol: Protocol,
+) -> Result<u16, SpoutError> {
     registry::with_lock(registry_path, |r| {
         if let Some(port) = r.get(project, service) {
             return Ok(port);
         }
 
-        // Materialise claimed ports once so the hot loop below is O(1) per
-        // candidate instead of scanning every project × service each time.
+        // Ports claimed on the *same* protocol are off-limits; claims on the
+        // other protocol don't block us — TCP 5432 and UDP 5432 coexist.
         let claimed: HashSet<u16> = r
             .projects
             .values()
-            .flat_map(|services| services.values().map(|e| e.port))
+            .flat_map(|services| services.values())
+            .filter(|e| e.protocol == protocol)
+            .map(|e| e.port)
             .collect();
 
         for candidate in BASE_PORT..=MAX_PORT {
             if claimed.contains(&candidate) {
                 continue;
             }
-            if !is_port_free_on_os(candidate, Protocol::default()) {
+            if !is_port_free_on_os(candidate, protocol) {
                 continue;
             }
-            r.set(project, service, candidate);
+            r.set(project, service, candidate, protocol);
             return Ok(candidate);
         }
 
@@ -129,31 +136,31 @@ mod tests {
     #[test]
     fn alloc_fresh_returns_first_free_port_in_range() {
         let (_dir, path) = temp_registry();
-        let port = alloc(&path, "p", "s").unwrap();
+        let port = alloc(&path, "p", "s", Protocol::default()).unwrap();
         assert!((BASE_PORT..=MAX_PORT).contains(&port));
     }
 
     #[test]
     fn alloc_is_idempotent_per_project_service() {
         let (_dir, path) = temp_registry();
-        let first = alloc(&path, "p", "s").unwrap();
-        let second = alloc(&path, "p", "s").unwrap();
+        let first = alloc(&path, "p", "s", Protocol::default()).unwrap();
+        let second = alloc(&path, "p", "s", Protocol::default()).unwrap();
         assert_eq!(first, second);
     }
 
     #[test]
     fn alloc_different_projects_get_different_ports() {
         let (_dir, path) = temp_registry();
-        let a = alloc(&path, "proj-a", "postgres").unwrap();
-        let b = alloc(&path, "proj-b", "postgres").unwrap();
+        let a = alloc(&path, "proj-a", "postgres", Protocol::default()).unwrap();
+        let b = alloc(&path, "proj-b", "postgres", Protocol::default()).unwrap();
         assert_ne!(a, b);
     }
 
     #[test]
     fn alloc_different_services_same_project_get_different_ports() {
         let (_dir, path) = temp_registry();
-        let pg = alloc(&path, "p", "postgres").unwrap();
-        let rd = alloc(&path, "p", "redis").unwrap();
+        let pg = alloc(&path, "p", "postgres", Protocol::default()).unwrap();
+        let rd = alloc(&path, "p", "redis", Protocol::default()).unwrap();
         assert_ne!(pg, rd);
     }
 
@@ -166,14 +173,40 @@ mod tests {
             // Port already in use by something on the test machine — test
             // is still valid (alloc will skip it), just can't assert the
             // exact fallback target.
-            let port = alloc(&path, "p", "s").unwrap();
+            let port = alloc(&path, "p", "s", Protocol::default()).unwrap();
             assert_ne!(port, BASE_PORT);
             return;
         }
         let _holder = holder.unwrap();
-        let port = alloc(&path, "p", "s").unwrap();
+        let port = alloc(&path, "p", "s", Protocol::default()).unwrap();
         assert_ne!(port, BASE_PORT);
         assert!(port > BASE_PORT);
+    }
+
+    #[test]
+    fn alloc_udp_returns_port_in_range() {
+        let (_dir, path) = temp_registry();
+        let port = alloc(&path, "p", "dns", Protocol::Udp).unwrap();
+        assert!((BASE_PORT..=MAX_PORT).contains(&port));
+    }
+
+    #[test]
+    fn alloc_udp_and_tcp_can_share_a_port_number() {
+        // Claim a TCP port, then request a UDP allocation for a different
+        // service. The UDP alloc must be free to reuse that same port
+        // number because the protocols are independent.
+        let (_dir, path) = temp_registry();
+        let tcp_port = alloc(&path, "p", "tcp-svc", Protocol::Tcp).unwrap();
+        // Register the same number on UDP directly so we can assert the
+        // alloc loop doesn't treat a TCP claim as blocking.
+        registry::with_lock(&path, |r| {
+            r.set("p", "udp-svc", tcp_port, Protocol::Udp);
+            Ok(())
+        })
+        .unwrap();
+        let reg = registry::read(&path).unwrap();
+        assert_eq!(reg.get("p", "tcp-svc"), Some(tcp_port));
+        assert_eq!(reg.get("p", "udp-svc"), Some(tcp_port));
     }
 
     #[test]
@@ -215,7 +248,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let mut reg = Registry::default();
-        reg.set("proj", "svc", port);
+        reg.set("proj", "svc", port, Protocol::default());
         let bound = probe_bound_ports(&reg);
         assert!(bound.contains(&port));
     }
@@ -232,8 +265,8 @@ mod tests {
         let bound_port = listener.local_addr().unwrap().port();
         let free_port = bound_port.wrapping_sub(1).max(1024);
         let mut reg = Registry::default();
-        reg.set("proj", "bound", bound_port);
-        reg.set("proj", "free", free_port);
+        reg.set("proj", "bound", bound_port, Protocol::default());
+        reg.set("proj", "free", free_port, Protocol::default());
         let bound = probe_bound_ports(&reg);
         // `free_port` might be bound by something else on the test host, so
         // we only assert the one we pinned ourselves — enough to prove the
