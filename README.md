@@ -126,7 +126,7 @@ spout ships no built-in mapping — names are yours to define. The variable is r
 spout infers project identity from your git remote, falling back to your git root, and finally to your absolute working directory. Two projects with the same directory name don't collide.
 
 ```bash
-cd /projects/tyfi
+cd /projects/myapp
 spout alloc postgres      # registered under the project's git remote identity
 ```
 
@@ -168,7 +168,7 @@ A single JSON file at `~/.spout.json`:
 {
   "version": 1,
   "projects": {
-    "tyfi": {
+    "myapp": {
       "postgres": { "port": 20000, "allocated": "2026-04-20" },
       "api":      { "port": 20001, "allocated": "2026-04-20" }
     },

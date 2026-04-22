@@ -64,7 +64,7 @@ spout alloc postgres # same identity regardless of cwd within the repo
 
 Identity is cached per-process via a `OnceLock`, so the `git` shell-outs run at most once per invocation even when multiple command handlers would touch `current_project()`.
 
-**Rationale vs basename:** The original design used `basename $PWD`, matching Docker Compose's convention. That silently collides when two repos share a basename across different parent directories (`/work/tyfi` and `/home/personal/tyfi` both registered as "tyfi"). Git-remote identity is stable across filesystem moves and unique across the whole host. Basename is still effectively the identity for non-git directories, via the CWD-path fallback.
+**Rationale vs basename:** The original design used `basename $PWD`, matching Docker Compose's convention. That silently collides when two repos share a basename across different parent directories (`/work/myapp` and `/home/personal/myapp` both registered as "myapp"). Git-remote identity is stable across filesystem moves and unique across the whole host. Basename is still effectively the identity for non-git directories, via the CWD-path fallback.
 
 **Deferred to follow-up:** Compose-file inference (`spout alloc` with no args, parsed from `docker-compose.yml` to allocate for every declared service). Bind-mount source path detection for containerised dev environments. Both are pure ergonomic wins on top of the identity layer — not MVP.
 
@@ -81,6 +81,7 @@ This is the single most important design decision for agent safety. Agents frequ
 | `spout set <service> <port>` | ✅ Always | Manually registering a specific port |
 | `spout rm <service>` | ✅ Always | Removing a registration (appends to history) |
 | `spout ls [--project]` | ❌ Never | Listing registrations |
+| `spout env [--project]` | ❌ Never | Printing `KEY=VALUE` port assignments for shell eval |
 | `spout check <port>` | ❌ Never | OS bind-test diagnostic |
 | `spout whois <port> [--history]` | ❌ Never | Reverse lookup — who owns this port? |
 
@@ -211,6 +212,11 @@ spout ls
 # List registrations for the current project
 spout ls --project
 
+# Print KEY=VALUE port assignments, suitable for `eval $(spout env)` [READ ONLY]
+# --project filters to a named project; otherwise the current project is used.
+spout env
+spout env --project <name>
+
 # Check if a specific port is available (exit 0 = free, exit 1 = taken)
 spout check <port>
 
@@ -308,9 +314,11 @@ Platform: `flock` syscall on Linux/macOS. Windows is not a target for v1.
 
 ## 9. Env Var Naming
 
-**Historical.** Spout used to generate `SERVICE_PORT`-style names (uppercase, hyphens → underscores, `_PORT` suffix) and surface them in the `spout ls` TUI. The column was dropped in favour of a `PROJECT` column — agents and humans reference ports via `spout get <service>`, not by looking up an env-var name in the viewer — and the generator helper went with it.
+`spout env` emits `KEY=VALUE` lines using a simple derivation rule: uppercase the service name, replace hyphens with underscores, append `_PORT`. `postgres` → `POSTGRES_PORT`; `my-api` → `MY_API_PORT`. The registry stores the service name verbatim; the env-var name is derived on demand at print time, never stored.
 
-The convention itself (`POSTGRES_PORT`, `REDIS_PORT`, etc.) is still what most projects use in their Makefiles, `.env` files, and varlock schemas. Spout no longer imposes it.
+**Why this stays in scope.** Spout's scope is "port numbers, nothing else" — no `.env` writing, no environment-variable management, no state outside the registry. `spout env` is a per-call output format, not a file writer and not a daemon. `eval $(spout env)` is a shell-side convenience; spout itself never exports, persists, or owns the variables. The command is read-only on the registry and leaves no trace of itself between invocations.
+
+**Historical.** An earlier iteration exposed the derivation via a `services::env_var_name` helper that fed an `ENV VAR` column in the `spout ls` TUI. The column was dropped in favour of a `PROJECT` column — agents and humans reference ports via `spout get <service>`, not by looking up an env-var name in the viewer — and the helper went with it. The derivation rule survives as the output shape of `spout env`.
 
 ---
 
@@ -349,7 +357,7 @@ The project name is inferred from the current directory automatically.
 The absolute minimum viable version:
 
 **In scope:**
-- `spout get` / `spout alloc` / `spout set` / `spout rm` / `spout ls` / `spout check` / `spout whois`
+- `spout get` / `spout alloc` / `spout set` / `spout rm` / `spout ls` / `spout env` / `spout check` / `spout whois`
 - Layered project identity (git remote → git root → CWD), cached per-process
 - `~/.spout.json` read/write with fd-lock file locking and atomic writes (tempfile + rename)
 - `SPOUT_REGISTRY` env var override, lock path derived from registry path
