@@ -11,7 +11,9 @@ use std::path::Path;
 /// language-specific markers (Cargo.toml, package.json, etc.) invite false
 /// positives in workspace/monorepo setups where nested manifests aren't
 /// independent projects. See docs/planning/03-planning.md §3b for rationale.
-const COMPOSE_MARKERS: &[&str] = &[
+/// Also consumed by `commands::alloc::compose` for file discovery — any new
+/// compose filename additions land here.
+pub(crate) const COMPOSE_FILENAMES: &[&str] = &[
     "docker-compose.yml",
     "docker-compose.yaml",
     "compose.yml",
@@ -49,7 +51,9 @@ pub fn compose_marker_subdir(git_root: &Path, cwd: &Path) -> Option<String> {
 }
 
 fn has_compose_marker(dir: &Path) -> bool {
-    COMPOSE_MARKERS.iter().any(|name| dir.join(name).is_file())
+    COMPOSE_FILENAMES
+        .iter()
+        .any(|name| dir.join(name).is_file())
 }
 
 /// Join path components with `/`. Returns `None` if any component isn't

@@ -202,6 +202,12 @@ spout get <service>
 # Idempotent: if already registered, returns the existing port.
 spout alloc <service>
 
+# With no service name, reads a compose file in CWD (or -f <PATH>) and
+# allocates one port per declared service in a single transaction.
+# Protocol inferred per-service from the port spec. Tabular output. [MUTATES]
+spout alloc
+spout alloc -f compose.prod.yml
+
 # Register a specific port manually [MUTATES]
 spout set <service> <port>
 
@@ -264,6 +270,7 @@ This contract is non-negotiable. Breaking it breaks agent pipelines.
 | `5` | Port already registered to another project (for `set`) |
 | `6` | Port already in use by OS (for `set`) |
 | `7` | I/O error (e.g., stdout/stdin closed mid-command) |
+| `8` | Compose file missing or malformed (for `spout alloc`) |
 
 Exit codes are stable API. They are documented and must not change between versions.
 
@@ -560,7 +567,6 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 
 ## 18. Future Work
 
-- **Compose inference** — `spout alloc` with no arguments parses `docker-compose.yml` in the current directory and auto-allocates for every service declared. Reduces typing for the common multi-service case.
 - **`spout scan`** — discover and pre-reserve allocations from running + stopped Docker containers via `docker ps -a`. Closes the remaining stale-port gap for non-20000-range scenarios.
 - **`spout prune --check-remotes`** — opt-in network probe that runs `git ls-remote <url>` against git-remote identities to mark unreachable repos as candidates. Deferred so the default stays offline.
 - **Bind-mount source path detection** — for containerised dev environments where CWD is a mount point, walk `/proc/self/mountinfo` to find the source path.

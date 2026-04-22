@@ -30,36 +30,48 @@ pub fn alloc(
     protocol: Protocol,
 ) -> Result<u16, SpoutError> {
     registry::with_lock(registry_path, |r| {
-        if let Some(port) = r.get(project, service) {
-            return Ok(port);
+        alloc_within_lock(r, project, service, protocol).map(|(port, _)| port)
+    })
+}
+
+/// Allocate a port inside an already-held registry lock. Returns `(port,
+/// is_new)` — `is_new` is `false` on the idempotent "already registered"
+/// path and `true` for a fresh allocation. `compose` calls this from its
+/// batch loop so N services share one file-lock acquisition instead of N
+/// round-trips, and uses the flag for the "new vs existing" summary
+/// counts without needing a second `reg.get`.
+pub fn alloc_within_lock(
+    reg: &mut Registry,
+    project: &str,
+    service: &str,
+    protocol: Protocol,
+) -> Result<(u16, bool), SpoutError> {
+    if let Some(port) = reg.get(project, service) {
+        return Ok((port, false));
+    }
+    // Ports claimed on the *same* protocol are off-limits; claims on the
+    // other protocol don't block us — TCP 5432 and UDP 5432 coexist.
+    let claimed: HashSet<u16> = reg
+        .projects
+        .values()
+        .flat_map(|services| services.values())
+        .filter(|e| e.protocol == protocol)
+        .map(|e| e.port)
+        .collect();
+    for candidate in BASE_PORT..=MAX_PORT {
+        if claimed.contains(&candidate) {
+            continue;
         }
-
-        // Ports claimed on the *same* protocol are off-limits; claims on the
-        // other protocol don't block us — TCP 5432 and UDP 5432 coexist.
-        let claimed: HashSet<u16> = r
-            .projects
-            .values()
-            .flat_map(|services| services.values())
-            .filter(|e| e.protocol == protocol)
-            .map(|e| e.port)
-            .collect();
-
-        for candidate in BASE_PORT..=MAX_PORT {
-            if claimed.contains(&candidate) {
-                continue;
-            }
-            if !is_port_free_on_os(candidate, protocol) {
-                continue;
-            }
-            r.set(project, service, candidate, protocol);
-            return Ok(candidate);
+        if !is_port_free_on_os(candidate, protocol) {
+            continue;
         }
-
-        Err(SpoutError::NoFreePortFound {
-            service: service.to_owned(),
-            range_start: BASE_PORT,
-            range_end: MAX_PORT,
-        })
+        reg.set(project, service, candidate, protocol);
+        return Ok((candidate, true));
+    }
+    Err(SpoutError::NoFreePortFound {
+        service: service.to_owned(),
+        range_start: BASE_PORT,
+        range_end: MAX_PORT,
     })
 }
 
