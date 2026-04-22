@@ -22,14 +22,17 @@ spout get <service>
   READ ONLY — never mutates the registry. Safe to call speculatively.
   Exit code 1 if the service is not registered.
 
-spout alloc <service>
+spout alloc <service> [--udp]
   Finds a free port, registers it for <service> in the current project, and prints it.
   MUTATES REGISTRY — only call this when you intend to register a new port.
   Idempotent — if already registered, returns the existing port without error.
+  Default is TCP. Pass --udp to allocate a UDP port; TCP and UDP are independent
+  so the same number can be claimed once per protocol.
 
-spout set <service> <port>
+spout set <service> <port> [--udp]
   Manually registers a specific port for <service>. MUTATES REGISTRY.
-  Exits with an error if the port is claimed by another project or bound by the OS.
+  Exits with an error if the port is claimed by another project on the same
+  protocol, or bound by the OS. Default TCP; pass --udp for UDP.
 
 spout rm <service>
   Removes a registration for <service> in the current project. MUTATES REGISTRY.
@@ -37,11 +40,16 @@ spout rm <service>
 spout ls
   Lists all registered projects and their ports.
   Use --project to filter to the current project only.
-  READ ONLY.
+  Every row shows the protocol; plain-text output formats the port as
+  "20000/tcp" or "20000/udp". READ ONLY.
 
-spout check <port>
-  Exit code 0 if the port is free, 1 if taken.
-  READ ONLY.
+spout check <port> [--udp]
+  Exit code 0 if the port is free, 1 if taken. Default TCP; pass --udp to
+  probe the UDP port at that number instead. READ ONLY.
+
+spout whois <port>
+  Reverse lookup: surfaces every registration for that port across both TCP
+  and UDP, sorted TCP first. Add --history to include released ports. READ ONLY.
 
 ## The mutation boundary
 
