@@ -48,8 +48,8 @@ fn init_logging(verbose: bool) {
 fn run(cli: Cli) -> Result<(), SpoutError> {
     let reg_path = registry::registry_path()?;
     match cli.command {
-        Commands::Get { service } => {
-            let port = commands::get(&reg_path, &service)?;
+        Commands::Get { service, project } => {
+            let port = commands::get(&reg_path, &service, project.as_deref())?;
             println!("{port}");
         }
         Commands::Alloc { service, udp, file } => match (service, udp) {
@@ -73,8 +73,17 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
         Commands::Set { service, port, udp } => {
             commands::set(&reg_path, &service, port, proto(udp))?;
         }
-        Commands::Rm { service } => {
-            commands::rm(&reg_path, &service)?;
+        Commands::Rm {
+            service,
+            project,
+            yes,
+            dry_run,
+        } => {
+            let target = build_rm_target(service, project)?;
+            let out = commands::rm(&reg_path, target, commands::RmOptions { yes, dry_run })?;
+            if !out.is_empty() {
+                println!("{out}");
+            }
         }
         Commands::Ls { project, no_tui } => {
             if let Some(out) = commands::ls(&reg_path, project, no_tui)? {
@@ -120,6 +129,29 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
         }
     }
     Ok(())
+}
+
+fn build_rm_target(
+    service: Option<String>,
+    project: Option<Option<String>>,
+) -> Result<commands::RmTarget, SpoutError> {
+    match (service, project) {
+        (Some(name), Some(Some(p))) => Ok(commands::RmTarget::Service {
+            name,
+            project: Some(p),
+        }),
+        (Some(name), _) => Ok(commands::RmTarget::Service {
+            name,
+            project: None,
+        }),
+        (None, Some(Some(p))) => Ok(commands::RmTarget::Project { name: p }),
+        (None, Some(None)) => Ok(commands::RmTarget::Project {
+            name: crate::project::current_project()?,
+        }),
+        (None, None) => Err(SpoutError::Io(
+            "spout rm: specify a service or pass --project [NAME]".into(),
+        )),
+    }
 }
 
 fn proto(udp: bool) -> Protocol {
