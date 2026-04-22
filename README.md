@@ -88,12 +88,14 @@ Elvish and PowerShell are also supported via `spout completions elvish` and `spo
 
 ```bash
 spout get <service>         # read registered port              [READ ONLY]
+spout get <service> --project NAME  # read from another project [READ ONLY]
 spout alloc <service>       # register new port if needed       [MUTATES]
 spout alloc <service> --udp # same, UDP instead of TCP          [MUTATES]
 spout alloc                 # batch-alloc from docker-compose.yml [MUTATES]
 spout alloc -f compose.yml  # same, explicit compose file        [MUTATES]
 spout set <service> <port>  # manually register a port          [MUTATES]
 spout rm <service>          # remove a registration             [MUTATES]
+spout rm --project [NAME]   # remove every service in a project [MUTATES]
 spout prune --dry-run       # surface stale registrations        [READ ONLY]
 spout prune                 # remove interactively (y/N/q/!)     [MUTATES]
 spout prune --yes           # bulk-remove without prompts        [MUTATES]
@@ -247,6 +249,26 @@ Interactive mode prompts once per candidate:
 - `!` remove this and all remaining candidates
 
 Pruned entries land in `history` with reasons like `pruned: stale (older than 90d)` or `pruned: project path missing`, so `spout whois <port> --history` later still explains where the port went.
+
+### Decommissioning a project
+
+When you're winding down a still-extant project (so `spout prune` won't auto-detect it), `spout rm --project` clears every service in one step:
+
+```bash
+spout rm --project myapp        # confirm with [y/N], then remove all
+spout rm --project              # same, but for the current project
+spout rm --project myapp --yes  # skip the prompt
+spout rm --project myapp --dry-run  # just list what would go
+```
+
+Cross-project single removal also works without `cd`'ing into the project:
+
+```bash
+spout rm postgres --project myapp     # remove one service from another project
+spout get postgres --project myapp    # read another project's port (read only)
+```
+
+Each whole-project removal records every service in `history` with `user requested (project rm)`, distinguishing it from one-off `spout rm` operations.
 
 ### The mutation boundary
 
@@ -416,6 +438,7 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | 6    | Port already in use by OS              |
 | 7    | I/O error (e.g., stdout or stdin closed mid-command) |
 | 8    | Compose file missing or malformed (for `spout alloc`) |
+| 9    | Usage error (invalid flag combination) |
 
 ---
 

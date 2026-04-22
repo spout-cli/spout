@@ -79,16 +79,27 @@ impl Registry {
         if self.projects.get(project).is_some_and(|p| p.is_empty()) {
             self.projects.remove(project);
         }
-        self.history.push(HistoryEntry {
-            project: project.to_owned(),
-            service: service.to_owned(),
-            port: entry.port,
-            allocated: entry.allocated,
-            released: today_iso(),
-            reason: reason.to_owned(),
-            protocol: entry.protocol,
-        });
-        Some(entry.port)
+        let port = entry.port;
+        self.history
+            .push(history_of(project, service, entry, reason, &today_iso()));
+        Some(port)
+    }
+
+    /// Remove every service registered under `project`, appending each to
+    /// `history` with the given reason. Returns the count removed; 0 if the
+    /// project didn't exist. Used by `spout rm --project` so the whole-
+    /// project teardown happens in a single mutation pass.
+    pub fn remove_project(&mut self, project: &str, reason: &str) -> usize {
+        let Some(services) = self.projects.remove(project) else {
+            return 0;
+        };
+        let count = services.len();
+        let released = today_iso();
+        for (service, entry) in services {
+            self.history
+                .push(history_of(project, &service, entry, reason, &released));
+        }
+        count
     }
 
     /// Live-registry ownership of (port, protocol). TCP and UDP at the same
@@ -107,6 +118,24 @@ impl Registry {
         let mut matches: Vec<_> = self.history.iter().filter(|e| e.port == port).collect();
         matches.sort_by(|a, b| b.released.cmp(&a.released));
         matches
+    }
+}
+
+fn history_of(
+    project: &str,
+    service: &str,
+    entry: Entry,
+    reason: &str,
+    released: &str,
+) -> HistoryEntry {
+    HistoryEntry {
+        project: project.to_owned(),
+        service: service.to_owned(),
+        port: entry.port,
+        allocated: entry.allocated,
+        released: released.to_owned(),
+        reason: reason.to_owned(),
+        protocol: entry.protocol,
     }
 }
 
