@@ -229,7 +229,7 @@ spout whois <port> --history
 spout --version
 ```
 
-`spout gc` (periodic hygiene / stale-entry audit) is deferred to follow-up. The history mechanism covers the immediate "what was this port?" debugging use case.
+`spout prune` (periodic hygiene / stale-entry audit) is deferred to follow-up. The history mechanism covers the immediate "what was this port?" debugging use case.
 
 ### Output Contract
 
@@ -369,7 +369,7 @@ The absolute minimum viable version:
 - Registry version field
 
 **Explicitly out of scope for MVP:**
-- `spout gc` (stale-entry audit) — the `history` mechanism covers the debug use case
+- `spout prune` (stale-entry audit) — the `history` mechanism covers the debug use case
 - Docker container scanning (`spout scan`)
 - Compose-file inference (`spout alloc` no-args walking `docker-compose.yml`)
 - Bind-mount source path detection for dev containers
@@ -521,7 +521,7 @@ None. All resolved — see Section 16.
 
 These were open questions, now closed:
 
-- **`spout gc` behaviour** — deferred to follow-up. The history mechanism covers the immediate debug use case ("what was port X?"). Stale-entry detection against currently-present directories is a separate concern.
+- **`spout prune` behaviour** — deferred to follow-up. The history mechanism covers the immediate debug use case ("what was port X?"). Stale-entry detection against currently-present directories is a separate concern.
 - **Release strategy** — `cargo-dist` for binary distribution (GitHub releases, Homebrew tap, `curl | sh` installer) + `cargo-release` for version bumping and crates.io publishing.
 - **License** — dual `MIT OR Apache-2.0`, the Rust community standard.
 - **Crate pinning** — commit `Cargo.lock` (binary crate convention). No premature pinning in `Cargo.toml`.
@@ -552,7 +552,7 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 
 - **Compose inference** — `spout alloc` with no arguments parses `docker-compose.yml` in the current directory and auto-allocates for every service declared. Reduces typing for the common multi-service case.
 - **`spout scan`** — discover and pre-reserve allocations from running + stopped Docker containers via `docker ps -a`. Closes the remaining stale-port gap for non-20000-range scenarios.
-- **`spout gc`** — stale-entry audit: surface projects whose git remotes / paths no longer resolve. Surface-only by default; `--prune` for auto-removal.
+- **`spout prune`** — stale-entry audit: surface projects whose git remotes / paths no longer resolve. Interactive per-entry confirmation by default; `--dry-run` to surface without changes; `--yes` for bulk removal.
 - **Bind-mount source path detection** — for containerised dev environments where CWD is a mount point, walk `/proc/self/mountinfo` to find the source path.
 - **Shell completions** (bash, zsh, fish) via `clap_complete`.
 - **Windows support.**
