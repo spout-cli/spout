@@ -12,7 +12,9 @@ use crate::protocol::Protocol;
 use crate::registry;
 use crate::services::env_var_name;
 
+mod alloc;
 mod prune;
+pub use alloc::alloc;
 pub use prune::run as prune;
 
 pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
@@ -20,11 +22,6 @@ pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
     let reg = registry::read(registry_path)?;
     reg.get(&project, service)
         .ok_or(SpoutError::ServiceNotRegistered)
-}
-
-pub fn alloc(registry_path: &Path, service: &str, protocol: Protocol) -> Result<u16, SpoutError> {
-    let project = project::current_project()?;
-    allocator::alloc(registry_path, &project, service, protocol)
 }
 
 pub fn set(
