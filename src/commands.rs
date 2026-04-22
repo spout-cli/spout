@@ -310,16 +310,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "inherently racy: the OS can reassign the freed port before check() runs"]
-    fn check_returns_true_for_free_port() {
-        use std::net::TcpListener;
-        let l = TcpListener::bind("0.0.0.0:0").unwrap();
-        let port = l.local_addr().unwrap().port();
-        drop(l);
-        assert!(check(port));
-    }
-
-    #[test]
     fn whois_returns_active_registration() {
         let (_dir, path) = temp_registry();
         let port = alloc(&path, "postgres").unwrap();
