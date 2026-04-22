@@ -90,6 +90,16 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 exit(1);
             }
         },
+        Commands::Prune {
+            dry_run,
+            yes,
+            older_than,
+        } => {
+            let out = commands::prune(&reg_path, older_than, dry_run, yes)?;
+            if !out.is_empty() {
+                println!("{out}");
+            }
+        }
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "spout", &mut std::io::stdout());

@@ -12,6 +12,9 @@ use crate::protocol::Protocol;
 use crate::registry;
 use crate::services::env_var_name;
 
+mod prune;
+pub use prune::run as prune;
+
 pub fn get(registry_path: &Path, service: &str) -> Result<u16, SpoutError> {
     let project = project::current_project()?;
     let reg = registry::read(registry_path)?;
