@@ -37,8 +37,8 @@ pub fn current_project() -> Result<String, SpoutError> {
 /// Option<&str> of an explicit --project name → resolved project. Passes
 /// through `Some(name)` verbatim; falls back to `current_project()` for
 /// `None`. The canonical "respect --project if passed, otherwise infer"
-/// helper shared by `commands::rm`, `commands::realloc`, and anywhere else
-/// that offers cross-project targeting via a single-valued flag.
+/// helper used by any command that offers cross-project targeting via a
+/// single-valued flag.
 pub fn resolve_override(explicit: Option<&str>) -> Result<String, SpoutError> {
     match explicit {
         Some(name) => Ok(name.to_owned()),

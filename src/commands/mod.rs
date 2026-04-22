@@ -14,11 +14,9 @@ use crate::services::env_var_name;
 
 mod alloc;
 mod prune;
-mod realloc;
 mod rm;
 pub use alloc::{alloc, compose as alloc_compose};
 pub use prune::run as prune;
-pub use realloc::run as realloc;
 pub use rm::{run as rm, RmOptions, RmTarget};
 
 pub fn get(

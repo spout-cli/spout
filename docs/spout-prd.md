@@ -178,7 +178,7 @@ spout is not responsible for keeping `.env` files in sync. If you need that, use
 
 The project key is the identity string derived per §3.1 (git remote, git root, or CWD path).
 
-Each live entry carries an `allocated` date alongside the port — this lets `spout whois` answer "was this port ours?" against a log entry from an earlier time window. When a port is released (via `rm` or reallocation), the live entry moves into `history` with a `released` date and a `reason`.
+Each live entry carries an `allocated` date alongside the port — this lets `spout whois` answer "was this port ours?" against a log entry from an earlier time window. When a port is released (via `rm` or `prune`), the live entry moves into `history` with a `released` date and a `reason`.
 
 The `version` field is mandatory. If the version field is missing or unrecognised, spout exits with code 4 and a clear error — it does not attempt to parse an unknown format.
 
@@ -224,11 +224,6 @@ spout rm <service> --project <NAME>
 spout rm --project [NAME]
 spout rm --project [NAME] --yes
 spout rm --project [NAME] --dry-run
-
-# Re-allocate a service's port — atomic shortcut for rm + alloc. [MUTATES]
-# Preserves the existing entry's protocol.
-spout realloc <service>
-spout realloc <service> --project <NAME>
 
 # List all registrations
 spout ls
@@ -565,7 +560,7 @@ These were open questions, now closed:
 - **Shell completions** — ship with v1.0 via `clap_complete`. cargo-dist bundles them into the Homebrew formula automatically.
 - **Project identity** (resolved 2026-04-20) — layered: git remote URL → git root path → CWD path. Originally was `basename $PWD`; changed when that revealed silent collisions between same-basename repos in different directories.
 - **Allocation range** (resolved 2026-04-20) — fixed at 20000–32767, no service-specific starting ports. Originally walked forward from conventional ports (5432, 6379, etc.); changed because that created the exact failure mode spout was built to prevent (stopped containers on conventional ports getting their ports stolen).
-- **History in registry** (resolved 2026-04-20) — each release (via `rm` or reallocation) appends to a `history` array. `spout whois --history` searches both live and historical entries. No auto-pruning.
+- **History in registry** (resolved 2026-04-20) — each release (via `rm` or `prune`) appends to a `history` array. `spout whois --history` searches both live and historical entries. No auto-pruning.
 - **Bind-test placement** (resolved 2026-04-20) — only during fresh allocation (to avoid handing out a port something else is actively using) and in the explicit `spout check` diagnostic. Not in `alloc` for idempotent returns, not in `get`. Registry is the source of truth for ownership; bind-test can't distinguish "our container has it" from "something else stole it".
 
 ---
@@ -584,9 +579,18 @@ See `CODING_GUIDELINES.md` for the full rules. Summary:
 
 ## 18. Future Work
 
-- **`spout scan`** — discover and pre-reserve allocations from running + stopped Docker containers via `docker ps -a`. Closes the remaining stale-port gap for non-20000-range scenarios.
-- **`spout prune --check-remotes`** — opt-in network probe that runs `git ls-remote <url>` against git-remote identities to mark unreachable repos as candidates. Deferred so the default stays offline.
-- **Bind-mount source path detection** — for containerised dev environments where CWD is a mount point, walk `/proc/self/mountinfo` to find the source path.
-- **Shell completions** (bash, zsh, fish) via `clap_complete`.
-- **Windows support.**
-- **`spout env --dotenv`** — for projects not using varlock, generate a `.env` snippet.
+spout is considered **feature-complete for v1.0** pending real usage
+feedback. The shipped command surface covers the core workflow
+cleanly; additions below are parked, not planned. If you hit a wall
+that maps to one of them, open an issue — that's the signal to
+revisit.
+
+### Deferred (may revisit on demand)
+
+- **`spout scan`** — discover and pre-reserve allocations from running + stopped Docker containers via `docker ps -a`. Overlaps with `spout alloc` in compose mode for the common case; would be useful for users whose containers aren't declared in a compose file.
+- **`spout prune --check-remotes`** — opt-in network probe that runs `git ls-remote <url>` against git-remote identities to mark unreachable repos as candidates. Default-offline posture is intentional; network probes are a conscious opt-in.
+- **Bind-mount source path detection** — for containerised dev environments (devcontainers) where CWD is a mount point, walk `/proc/self/mountinfo` to find the host source path. Depth of need depends on the userbase.
+
+### Not on the roadmap
+
+- **Windows native.** Spout is Linux/macOS; Windows users install inside WSL2. Native Windows would require replacing `flock` with platform alternatives and reworking the TCP/UDP probe. No plans to take that on.
