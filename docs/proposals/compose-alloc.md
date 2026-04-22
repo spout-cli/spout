@@ -94,9 +94,9 @@ fn discover_compose_file(explicit: Option<&Path>) -> Result<PathBuf, SpoutError>
 }
 ```
 
-A new `SpoutError::ComposeNotFound` variant is needed. Exit code 8
-(`7` is now `Io` after the Stage 6 simplify pass). PRD exit-code
-table will grow by one row.
+A new `SpoutError::ComposeNotFound` variant is needed. Exit code 8 —
+the next free code after the existing 1–7. PRD exit-code table will
+grow by one row.
 
 ### Port-spec parsing
 
@@ -132,6 +132,16 @@ doesn't fail the whole allocation because one entry is weird.
 - **Existing registrations stay.** Same idempotency as today —
   `allocator::alloc()` returns an existing port for the (project,
   service) pair without probing.
+- **Single-lock batch.** Stage 6's `prune --yes` learned that calling
+  `registry::with_lock` N times for N registrations means N fsync +
+  read-parse-write cycles and no transactional semantics on partial
+  failure. Compose alloc should mirror the fix: build a
+  `Vec<(service, protocol)>` from the compose parse, then acquire
+  `with_lock` once and loop `alloc_within_lock(&mut Registry, ...)`
+  inside the closure. `allocator::alloc()`'s current shape
+  (lock-per-call) suits single-service invocations; compose-batch
+  needs either a new `alloc_within_lock` helper or a bulk entry
+  point on the allocator.
 
 ### Output format
 
@@ -168,8 +178,8 @@ successor to the archived `serde_yaml` (dtolnay archived it 2024).
 Compose files are the only YAML spout reads or writes, and `_ng`'s
 API is a drop-in `serde::Deserialize`-based loader.
 
-Weight: one transitive crate (`unsafe-libyaml-norway` parser).
-Compile time adds ~2–3 s on a clean build per the crate's README.
+Weight: one libyaml-based transitive parser. Compile time adds ~2–3 s
+on a clean build per the crate's README.
 
 ### Error model
 
