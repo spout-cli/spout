@@ -60,13 +60,12 @@ pub fn compose(
 
 fn load_chain(files: &[PathBuf]) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
     let (first, rest) = files.split_first().expect("caller guarantees non-empty");
-    let (mut services, mut warnings) = read_and_parse(first)?;
-    for file in rest {
-        let (next, next_warnings) = read_and_parse(file)?;
-        warnings.extend(next_warnings);
-        services = compose::merge_services(services, next);
-    }
-    Ok((services, warnings))
+    rest.iter()
+        .try_fold(read_and_parse(first)?, |(services, mut warnings), file| {
+            let (next, next_warnings) = read_and_parse(file)?;
+            warnings.extend(next_warnings);
+            Ok((compose::merge_services(services, next), warnings))
+        })
 }
 
 fn read_and_parse(file: &Path) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {

@@ -351,7 +351,6 @@ fn build_allocations_duplicate_container_port_skipped_with_warning() {
 
 #[test]
 fn load_chain_folds_explicit_three_files_last_wins() {
-    // -f a -f b -f c: c's ports should beat b's, which beats a's.
     let dir = TempDir::new().unwrap();
     let a = dir.path().join("a.yml");
     let b = dir.path().join("b.yml");
