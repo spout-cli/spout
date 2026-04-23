@@ -1,6 +1,7 @@
 # spout
 
-> Local development port registry. No daemon. No config. No surprises.
+> Stops Claude Code brute-forcing your ports.
+> No daemon. No config. No surprises.
 
 ---
 
@@ -109,9 +110,26 @@ spout whois <port> --history  # include released ports          [READ ONLY]
 
 ### Listing services
 
-In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — columns for service, port, allocation date, and project. Press `q`, `Esc`, or `Ctrl-C` to exit.
+In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — services grouped per project, bound/free indicator on every port, press `q` / `Esc` / `Ctrl-C` to exit.
 
-When stdout is piped, redirected, or you pass `--no-tui`, the command emits plain text instead. Scripts, Makefiles, and AI agents always see the plain-text path, so nothing changes for automation.
+![spout ls TUI](docs/images/tui-ls.png)
+
+The TUI only activates on a real TTY. Pipes, redirects, and `--no-tui` all emit plain text instead — the same data, byte-identical between the two paths:
+
+```
+github.com/acme/billing-portal
+  ○ api           20002/tcp  (since 2026-02-11)
+  ○ mailpit-smtp  20003/tcp  (since 2026-03-04)
+  ○ postgres      20000/tcp  (since 2026-02-11)
+  ○ redis         20001/tcp  (since 2026-02-11)
+
+scratch-sandbox
+  ○ clickhouse  20019/tcp  (since 2026-04-18)
+  ○ grafana     20020/tcp  (since 2026-04-18)
+  ○ quic-echo   20021/udp  (since 2026-04-19)
+```
+
+Scripts, Makefiles, CI, and AI agents always see this plain path — the TUI is strictly for humans eyeballing state in a real terminal.
 
 ```bash
 spout ls                    # interactive viewer in a terminal
