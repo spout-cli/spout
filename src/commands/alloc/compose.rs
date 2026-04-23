@@ -28,6 +28,19 @@ pub(super) fn parse(yaml: &str) -> Result<Vec<ComposeService>, SpoutError> {
         .collect())
 }
 
+/// Override-wins per service. Output is alphabetical.
+pub(super) fn merge_services(
+    base: Vec<ComposeService>,
+    overlay: Vec<ComposeService>,
+) -> Vec<ComposeService> {
+    let mut merged: std::collections::BTreeMap<String, ComposeService> =
+        base.into_iter().map(|s| (s.name.clone(), s)).collect();
+    for svc in overlay {
+        merged.insert(svc.name.clone(), svc);
+    }
+    merged.into_values().collect()
+}
+
 fn service_entry(name: String, def: ServiceDef) -> Option<ComposeService> {
     let ports = def.ports?;
     if ports.is_empty() {
@@ -256,5 +269,69 @@ mod tests {
         let mut got_names = names(&got);
         got_names.sort();
         assert_eq!(got_names, vec!["coredns", "postgres", "redis"]);
+    }
+
+    fn svc(name: &str, protocol: Protocol, extra: usize) -> ComposeService {
+        ComposeService {
+            name: name.to_string(),
+            protocol,
+            extra_ports: extra,
+        }
+    }
+
+    #[test]
+    fn merge_overlay_adds_service_not_in_base() {
+        let base = vec![svc("postgres", Protocol::Tcp, 0)];
+        let overlay = vec![svc("api", Protocol::Tcp, 0)];
+        let merged = merge_services(base, overlay);
+        assert_eq!(names(&merged), vec!["api", "postgres"]);
+    }
+
+    #[test]
+    fn merge_overlay_wins_when_both_declare_service() {
+        let base = vec![svc("api", Protocol::Tcp, 0)];
+        let overlay = vec![svc("api", Protocol::Udp, 2)];
+        let merged = merge_services(base, overlay);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].protocol, Protocol::Udp);
+        assert_eq!(merged[0].extra_ports, 2);
+    }
+
+    #[test]
+    fn merge_preserves_base_only_services() {
+        let base = vec![
+            svc("postgres", Protocol::Tcp, 0),
+            svc("redis", Protocol::Tcp, 0),
+        ];
+        let merged = merge_services(base, vec![]);
+        assert_eq!(names(&merged), vec!["postgres", "redis"]);
+    }
+
+    #[test]
+    fn merge_both_empty_is_empty() {
+        assert!(merge_services(vec![], vec![]).is_empty());
+    }
+
+    #[test]
+    fn merge_result_is_alphabetical() {
+        let base = vec![
+            svc("redis", Protocol::Tcp, 0),
+            svc("alpha", Protocol::Tcp, 0),
+        ];
+        let overlay = vec![
+            svc("zulu", Protocol::Tcp, 0),
+            svc("bravo", Protocol::Tcp, 0),
+        ];
+        let merged = merge_services(base, overlay);
+        assert_eq!(names(&merged), vec!["alpha", "bravo", "redis", "zulu"]);
+    }
+
+    #[test]
+    fn merge_protocol_follows_winning_file() {
+        // Base says TCP for coredns; overlay says UDP. Overlay wins.
+        let base = vec![svc("coredns", Protocol::Tcp, 0)];
+        let overlay = vec![svc("coredns", Protocol::Udp, 0)];
+        let merged = merge_services(base, overlay);
+        assert_eq!(merged[0].protocol, Protocol::Udp);
     }
 }
