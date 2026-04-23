@@ -20,6 +20,17 @@ pub(crate) const COMPOSE_FILENAMES: &[&str] = &[
     "compose.yaml",
 ];
 
+/// Override compose filenames auto-loaded alongside the base. Matches Docker
+/// Compose's own merge behaviour: if any of these exists in CWD, its service
+/// definitions layer on top of the base file. Only consumed by
+/// `commands::alloc::compose` for file discovery.
+pub(crate) const OVERRIDE_COMPOSE_FILENAMES: &[&str] = &[
+    "docker-compose.override.yml",
+    "docker-compose.override.yaml",
+    "compose.override.yml",
+    "compose.override.yaml",
+];
+
 /// Walk up from `cwd` looking for the nearest ancestor directory (strictly
 /// below `git_root`) that contains a compose marker. Return its path relative
 /// to `git_root` in POSIX form, or `None` if no such ancestor exists.

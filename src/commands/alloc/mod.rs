@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::allocator;
 use crate::error::SpoutError;
 use crate::project;
-use crate::project_markers::COMPOSE_FILENAMES;
+use crate::project_markers::{COMPOSE_FILENAMES, OVERRIDE_COMPOSE_FILENAMES};
 use crate::protocol::Protocol;
 use crate::registry;
 
@@ -33,28 +33,56 @@ struct Allocation<'a> {
     is_new: bool,
 }
 
+#[derive(Debug)]
+struct ComposeFiles {
+    base: PathBuf,
+    overlay: Option<PathBuf>,
+}
+
 pub fn compose(
     registry_path: &Path,
     explicit_file: Option<&Path>,
 ) -> Result<ComposeOutcome, SpoutError> {
     let cwd =
         std::env::current_dir().map_err(|e| SpoutError::Io(format!("cwd unreadable: {e}")))?;
-    let file = discover_compose(&cwd, explicit_file)?;
-    let yaml = std::fs::read_to_string(&file)
-        .map_err(|e| SpoutError::ComposeInvalid(format!("read {}: {e}", file.display())))?;
-    let services = compose::parse(&yaml)?;
+    let files = discover_compose(&cwd, explicit_file)?;
+    let services = load_and_merge(&files)?;
     let warnings = build_warnings(&services);
 
     if services.is_empty() {
         return Ok(ComposeOutcome {
-            summary: format!("{}: no services with port declarations.", file.display()),
+            summary: format!(
+                "{}: no services with port declarations.",
+                display_files(&files)
+            ),
             warnings,
         });
     }
 
     let allocations = build_allocations(registry_path, &services)?;
-    let summary = format_compose_summary(&file, &allocations);
+    let summary = format_compose_summary(&files, &allocations);
     Ok(ComposeOutcome { summary, warnings })
+}
+
+fn load_and_merge(files: &ComposeFiles) -> Result<Vec<ComposeService>, SpoutError> {
+    let base = read_and_parse(&files.base)?;
+    match &files.overlay {
+        Some(overlay) => Ok(compose::merge_services(base, read_and_parse(overlay)?)),
+        None => Ok(base),
+    }
+}
+
+fn read_and_parse(file: &Path) -> Result<Vec<ComposeService>, SpoutError> {
+    let yaml = std::fs::read_to_string(file)
+        .map_err(|e| SpoutError::ComposeInvalid(format!("read {}: {e}", file.display())))?;
+    compose::parse(&yaml)
+}
+
+fn display_files(files: &ComposeFiles) -> String {
+    match &files.overlay {
+        Some(overlay) => format!("{} + {}", files.base.display(), overlay.display()),
+        None => files.base.display().to_string(),
+    }
 }
 
 fn build_warnings(services: &[ComposeService]) -> Vec<String> {
@@ -95,36 +123,55 @@ fn build_allocations<'a>(
     })
 }
 
-fn discover_compose(cwd: &Path, explicit: Option<&Path>) -> Result<PathBuf, SpoutError> {
+fn discover_compose(cwd: &Path, explicit: Option<&Path>) -> Result<ComposeFiles, SpoutError> {
     if let Some(p) = explicit {
         return if p.is_file() {
-            Ok(p.to_owned())
+            Ok(ComposeFiles {
+                base: p.to_owned(),
+                overlay: None,
+            })
         } else {
-            Err(SpoutError::ComposeNotFound)
+            Err(SpoutError::ComposeNotFound(format!(
+                "compose file not found: {}",
+                p.display()
+            )))
         };
     }
-    for name in COMPOSE_FILENAMES {
-        let candidate = cwd.join(name);
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
+    let base = find_existing(cwd, COMPOSE_FILENAMES);
+    let overlay = find_existing(cwd, OVERRIDE_COMPOSE_FILENAMES);
+    match (base, overlay) {
+        (Some(base), overlay) => Ok(ComposeFiles { base, overlay }),
+        (None, Some(overlay)) => Err(SpoutError::ComposeNotFound(format!(
+            "found override compose file {} but no base; pass -f <PATH> to specify the base",
+            overlay.display()
+        ))),
+        (None, None) => Err(SpoutError::ComposeNotFound(
+            "no compose file found (looked for docker-compose.yml / .yaml / compose.yml / .yaml); \
+             pass -f <PATH> to override"
+                .to_string(),
+        )),
     }
-    Err(SpoutError::ComposeNotFound)
 }
 
-fn format_compose_summary(file: &Path, allocations: &[Allocation<'_>]) -> String {
+fn find_existing(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
+    names
+        .iter()
+        .map(|name| cwd.join(name))
+        .find(|c| c.is_file())
+}
+
+fn format_compose_summary(files: &ComposeFiles, allocations: &[Allocation<'_>]) -> String {
     let total = allocations.len();
     let new_count = allocations.iter().filter(|a| a.is_new).count();
+    let display = display_files(files);
     let header = if new_count == total {
         format!(
-            "{} → {total} service{} allocated.",
-            file.display(),
+            "{display} → {total} service{} allocated.",
             if total == 1 { "" } else { "s" }
         )
     } else {
         format!(
-            "{} → {total} services ({new_count} new, {} existing).",
-            file.display(),
+            "{display} → {total} services ({new_count} new, {} existing).",
             total - new_count,
         )
     };
@@ -137,113 +184,4 @@ fn format_compose_summary(file: &Path, allocations: &[Allocation<'_>]) -> String
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    fn write_compose(dir: &Path, filename: &str, contents: &str) {
-        std::fs::write(dir.join(filename), contents).unwrap();
-    }
-
-    fn basic_compose() -> &'static str {
-        r#"
-services:
-  postgres:
-    ports: ["5432"]
-  redis:
-    ports: ["6379"]
-  dns:
-    ports: ["53:53/udp"]
-"#
-    }
-
-    #[test]
-    fn discover_finds_docker_compose_yml() {
-        let dir = TempDir::new().unwrap();
-        write_compose(dir.path(), "docker-compose.yml", basic_compose());
-        let got = discover_compose(dir.path(), None).unwrap();
-        assert!(got.ends_with("docker-compose.yml"));
-    }
-
-    #[test]
-    fn discover_falls_through_to_compose_yaml() {
-        let dir = TempDir::new().unwrap();
-        write_compose(dir.path(), "compose.yaml", basic_compose());
-        let got = discover_compose(dir.path(), None).unwrap();
-        assert!(got.ends_with("compose.yaml"));
-    }
-
-    #[test]
-    fn discover_prefers_docker_compose_yml_over_compose_yaml() {
-        let dir = TempDir::new().unwrap();
-        write_compose(dir.path(), "docker-compose.yml", basic_compose());
-        write_compose(dir.path(), "compose.yaml", basic_compose());
-        let got = discover_compose(dir.path(), None).unwrap();
-        assert!(got.ends_with("docker-compose.yml"));
-    }
-
-    #[test]
-    fn discover_honours_explicit_path() {
-        let dir = TempDir::new().unwrap();
-        let p = dir.path().join("prod.yml");
-        std::fs::write(&p, basic_compose()).unwrap();
-        let got = discover_compose(dir.path(), Some(&p)).unwrap();
-        assert_eq!(got, p);
-    }
-
-    #[test]
-    fn discover_missing_file_is_compose_not_found() {
-        let dir = TempDir::new().unwrap();
-        let err = discover_compose(dir.path(), None).unwrap_err();
-        assert!(matches!(err, SpoutError::ComposeNotFound));
-        assert_eq!(err.exit_code(), 8);
-    }
-
-    #[test]
-    fn discover_missing_explicit_path_is_compose_not_found() {
-        let dir = TempDir::new().unwrap();
-        let missing = dir.path().join("does-not-exist.yml");
-        let err = discover_compose(dir.path(), Some(&missing)).unwrap_err();
-        assert!(matches!(err, SpoutError::ComposeNotFound));
-    }
-
-    #[test]
-    fn format_summary_one_service_uses_singular() {
-        let out = format_compose_summary(
-            Path::new("docker-compose.yml"),
-            &[Allocation {
-                name: "api",
-                port: 20_000,
-                protocol: Protocol::Tcp,
-                is_new: true,
-            }],
-        );
-        assert!(out.contains("1 service allocated"));
-        assert!(out.contains("api"));
-        assert!(out.contains("20000"));
-        assert!(out.contains("tcp"));
-    }
-
-    #[test]
-    fn format_summary_mixed_new_and_existing() {
-        let out = format_compose_summary(
-            Path::new("docker-compose.yml"),
-            &[
-                Allocation {
-                    name: "a",
-                    port: 20_000,
-                    protocol: Protocol::Tcp,
-                    is_new: true,
-                },
-                Allocation {
-                    name: "b",
-                    port: 20_001,
-                    protocol: Protocol::Udp,
-                    is_new: false,
-                },
-            ],
-        );
-        assert!(out.contains("2 services (1 new, 1 existing)"));
-        assert!(out.contains("udp"));
-    }
-}
+mod tests;
