@@ -39,96 +39,83 @@ services:
 "#
 }
 
-fn files_base(p: PathBuf) -> ComposeFiles {
-    ComposeFiles {
-        base: p,
-        overlay: None,
-    }
-}
-
 #[test]
-fn discover_finds_docker_compose_yml() {
+fn resolve_finds_docker_compose_yml() {
     let dir = TempDir::new().unwrap();
     write_compose(dir.path(), "docker-compose.yml", basic_compose());
-    let got = discover_compose(dir.path(), None).unwrap();
-    assert!(got.base.ends_with("docker-compose.yml"));
-    assert!(got.overlay.is_none());
+    let got = resolve_compose_files(dir.path(), &[]).unwrap();
+    assert_eq!(got.len(), 1);
+    assert!(got[0].ends_with("docker-compose.yml"));
 }
 
 #[test]
-fn discover_falls_through_to_compose_yaml() {
+fn resolve_falls_through_to_compose_yaml() {
     let dir = TempDir::new().unwrap();
     write_compose(dir.path(), "compose.yaml", basic_compose());
-    let got = discover_compose(dir.path(), None).unwrap();
-    assert!(got.base.ends_with("compose.yaml"));
+    let got = resolve_compose_files(dir.path(), &[]).unwrap();
+    assert!(got[0].ends_with("compose.yaml"));
 }
 
 #[test]
-fn discover_prefers_docker_compose_yml_over_compose_yaml() {
+fn resolve_prefers_docker_compose_yml_over_compose_yaml() {
     let dir = TempDir::new().unwrap();
     write_compose(dir.path(), "docker-compose.yml", basic_compose());
     write_compose(dir.path(), "compose.yaml", basic_compose());
-    let got = discover_compose(dir.path(), None).unwrap();
-    assert!(got.base.ends_with("docker-compose.yml"));
+    let got = resolve_compose_files(dir.path(), &[]).unwrap();
+    assert!(got[0].ends_with("docker-compose.yml"));
 }
 
 #[test]
-fn discover_honours_explicit_path() {
+fn resolve_honours_explicit_path() {
     let dir = TempDir::new().unwrap();
     let p = dir.path().join("prod.yml");
     std::fs::write(&p, basic_compose()).unwrap();
-    let got = discover_compose(dir.path(), Some(&p)).unwrap();
-    assert_eq!(got.base, p);
-    assert!(got.overlay.is_none());
+    let got = resolve_compose_files(dir.path(), &[p.clone()]).unwrap();
+    assert_eq!(got, vec![p]);
 }
 
 #[test]
-fn discover_missing_file_is_compose_not_found() {
+fn resolve_missing_file_is_compose_not_found() {
     let dir = TempDir::new().unwrap();
-    let err = discover_compose(dir.path(), None).unwrap_err();
+    let err = resolve_compose_files(dir.path(), &[]).unwrap_err();
     assert!(matches!(err, SpoutError::ComposeNotFound(_)));
     assert_eq!(err.exit_code(), 8);
 }
 
 #[test]
-fn discover_missing_explicit_path_is_compose_not_found() {
+fn resolve_missing_explicit_path_is_compose_not_found() {
     let dir = TempDir::new().unwrap();
     let missing = dir.path().join("does-not-exist.yml");
-    let err = discover_compose(dir.path(), Some(&missing)).unwrap_err();
+    let err = resolve_compose_files(dir.path(), &[missing]).unwrap_err();
     assert!(matches!(err, SpoutError::ComposeNotFound(_)));
 }
 
 #[test]
-fn discover_returns_base_and_override_when_both_exist() {
+fn resolve_returns_base_and_override_when_both_exist() {
     let dir = TempDir::new().unwrap();
     write_compose(dir.path(), "docker-compose.yml", basic_compose());
     write_compose(dir.path(), "docker-compose.override.yml", basic_compose());
-    let got = discover_compose(dir.path(), None).unwrap();
-    assert!(got.base.ends_with("docker-compose.yml"));
-    assert!(got
-        .overlay
-        .as_ref()
-        .is_some_and(|o| o.ends_with("docker-compose.override.yml")));
+    let got = resolve_compose_files(dir.path(), &[]).unwrap();
+    assert_eq!(got.len(), 2);
+    assert!(got[0].ends_with("docker-compose.yml"));
+    assert!(got[1].ends_with("docker-compose.override.yml"));
 }
 
 #[test]
-fn discover_pairs_base_with_mismatched_override_extension() {
+fn resolve_pairs_base_with_mismatched_override_extension() {
     let dir = TempDir::new().unwrap();
     write_compose(dir.path(), "docker-compose.yml", basic_compose());
     write_compose(dir.path(), "compose.override.yaml", basic_compose());
-    let got = discover_compose(dir.path(), None).unwrap();
-    assert!(got.base.ends_with("docker-compose.yml"));
-    assert!(got
-        .overlay
-        .as_ref()
-        .is_some_and(|o| o.ends_with("compose.override.yaml")));
+    let got = resolve_compose_files(dir.path(), &[]).unwrap();
+    assert!(got[0].ends_with("docker-compose.yml"));
+    assert!(got[1].ends_with("compose.override.yaml"));
 }
 
 #[test]
-fn discover_override_without_base_is_friendly_error() {
+fn resolve_override_without_base_is_friendly_error() {
     let dir = TempDir::new().unwrap();
     write_compose(dir.path(), "docker-compose.override.yml", basic_compose());
-    let err = discover_compose(dir.path(), None).unwrap_err();
+    let err = resolve_compose_files(dir.path(), &[]).unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("override"), "got {msg:?}");
     assert!(msg.contains("no base"), "got {msg:?}");
@@ -136,20 +123,42 @@ fn discover_override_without_base_is_friendly_error() {
 }
 
 #[test]
-fn discover_explicit_path_ignores_override_in_cwd() {
+fn resolve_explicit_path_ignores_override_in_cwd() {
     let dir = TempDir::new().unwrap();
     let explicit = dir.path().join("prod.yml");
     std::fs::write(&explicit, basic_compose()).unwrap();
     write_compose(dir.path(), "docker-compose.override.yml", basic_compose());
-    let got = discover_compose(dir.path(), Some(&explicit)).unwrap();
-    assert_eq!(got.base, explicit);
-    assert!(got.overlay.is_none());
+    let got = resolve_compose_files(dir.path(), &[explicit.clone()]).unwrap();
+    assert_eq!(got, vec![explicit]);
+}
+
+#[test]
+fn resolve_explicit_chain_preserves_order() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.yml");
+    let b = dir.path().join("b.yml");
+    let c = dir.path().join("c.yml");
+    for p in [&a, &b, &c] {
+        std::fs::write(p, basic_compose()).unwrap();
+    }
+    let got = resolve_compose_files(dir.path(), &[a.clone(), b.clone(), c.clone()]).unwrap();
+    assert_eq!(got, vec![a, b, c]);
+}
+
+#[test]
+fn resolve_explicit_missing_mid_chain_errors() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.yml");
+    std::fs::write(&a, basic_compose()).unwrap();
+    let missing = dir.path().join("missing.yml");
+    let err = resolve_compose_files(dir.path(), &[a, missing]).unwrap_err();
+    assert!(matches!(err, SpoutError::ComposeNotFound(_)));
 }
 
 #[test]
 fn format_summary_one_port_uses_singular() {
     let out = format_compose_summary(
-        &files_base(PathBuf::from("docker-compose.yml")),
+        &[PathBuf::from("docker-compose.yml")],
         &[Allocation {
             name: "api".to_string(),
             port: 20_000,
@@ -166,7 +175,7 @@ fn format_summary_one_port_uses_singular() {
 #[test]
 fn format_summary_mixed_new_and_existing() {
     let out = format_compose_summary(
-        &files_base(PathBuf::from("docker-compose.yml")),
+        &[PathBuf::from("docker-compose.yml")],
         &[
             Allocation {
                 name: "a".to_string(),
@@ -187,13 +196,13 @@ fn format_summary_mixed_new_and_existing() {
 }
 
 #[test]
-fn format_summary_cites_both_files_when_override_present() {
-    let files = ComposeFiles {
-        base: PathBuf::from("docker-compose.yml"),
-        overlay: Some(PathBuf::from("docker-compose.override.yml")),
-    };
+fn format_summary_cites_all_files_when_multiple_present() {
     let out = format_compose_summary(
-        &files,
+        &[
+            PathBuf::from("docker-compose.yml"),
+            PathBuf::from("docker-compose.override.yml"),
+            PathBuf::from("compose.local.yml"),
+        ],
         &[Allocation {
             name: "api".to_string(),
             port: 20_000,
@@ -203,11 +212,12 @@ fn format_summary_cites_both_files_when_override_present() {
     );
     assert!(out.contains("docker-compose.yml"));
     assert!(out.contains("docker-compose.override.yml"));
-    assert!(out.contains(" + "));
+    assert!(out.contains("compose.local.yml"));
+    assert_eq!(out.matches(" + ").count(), 2);
 }
 
 #[test]
-fn load_and_merge_overlay_adds_services_missing_from_base() {
+fn load_chain_overlay_adds_services_missing_from_base() {
     let dir = TempDir::new().unwrap();
     let base = r#"
 services:
@@ -225,15 +235,15 @@ services:
 "#;
     write_compose(dir.path(), "docker-compose.yml", base);
     write_compose(dir.path(), "docker-compose.override.yml", overlay);
-    let files = discover_compose(dir.path(), None).unwrap();
-    let (services, _warnings) = load_and_merge(&files).unwrap();
+    let files = resolve_compose_files(dir.path(), &[]).unwrap();
+    let (services, _warnings) = load_chain(&files).unwrap();
     let mut names: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
     names.sort();
     assert_eq!(names, vec!["api", "postgres"]);
 }
 
 #[test]
-fn load_and_merge_overlay_wins_on_port_conflict() {
+fn load_chain_overlay_wins_on_port_conflict() {
     let dir = TempDir::new().unwrap();
     let base = r#"
 services:
@@ -247,8 +257,8 @@ services:
 "#;
     write_compose(dir.path(), "docker-compose.yml", base);
     write_compose(dir.path(), "docker-compose.override.yml", overlay);
-    let files = discover_compose(dir.path(), None).unwrap();
-    let (services, _warnings) = load_and_merge(&files).unwrap();
+    let files = resolve_compose_files(dir.path(), &[]).unwrap();
+    let (services, _warnings) = load_chain(&files).unwrap();
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].ports.len(), 1);
     assert_eq!(services[0].ports[0].protocol, Protocol::Udp);
@@ -337,4 +347,48 @@ fn build_allocations_duplicate_container_port_skipped_with_warning() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("'svc'"));
     assert!(warnings[0].contains("80"));
+}
+
+#[test]
+fn load_chain_folds_explicit_three_files_last_wins() {
+    // -f a -f b -f c: c's ports should beat b's, which beats a's.
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.yml");
+    let b = dir.path().join("b.yml");
+    let c = dir.path().join("c.yml");
+    std::fs::write(
+        &a,
+        r#"
+services:
+  api:
+    ports: ["8080"]
+  postgres:
+    ports: ["5432"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &b,
+        r#"
+services:
+  api:
+    ports: ["9090"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &c,
+        r#"
+services:
+  api:
+    ports: ["7070/udp"]
+"#,
+    )
+    .unwrap();
+    let files = resolve_compose_files(dir.path(), &[a, b, c]).unwrap();
+    let (services, _warnings) = load_chain(&files).unwrap();
+    let api = services.iter().find(|s| s.name == "api").unwrap();
+    assert_eq!(api.ports.len(), 1);
+    assert_eq!(api.ports[0].protocol, Protocol::Udp);
+    assert!(services.iter().any(|s| s.name == "postgres"));
 }
