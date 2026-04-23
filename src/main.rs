@@ -52,7 +52,11 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
             let port = commands::get(&reg_path, &service, project.as_deref())?;
             println!("{port}");
         }
-        Commands::Alloc { service, udp, file } => match (service, udp) {
+        Commands::Alloc {
+            service,
+            udp,
+            files,
+        } => match (service, udp) {
             (Some(svc), _) => {
                 let port = commands::alloc(&reg_path, &svc, proto(udp))?;
                 println!("{port}");
@@ -63,7 +67,7 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 ));
             }
             (None, false) => {
-                let outcome = commands::alloc_compose(&reg_path, file.as_deref())?;
+                let outcome = commands::alloc_compose(&reg_path, &files)?;
                 for w in &outcome.warnings {
                     eprintln!("spout: {w}");
                 }
