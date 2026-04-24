@@ -204,7 +204,7 @@ services:
     write_compose(dir.path(), "docker-compose.yml", base);
     write_compose(dir.path(), "docker-compose.override.yml", overlay);
     let files = discover_compose(dir.path(), None).unwrap();
-    let services = load_and_merge(&files).unwrap();
+    let (services, _warnings) = load_and_merge(&files).unwrap();
     let mut names: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
     names.sort();
     assert_eq!(names, vec!["api", "postgres"]);
@@ -226,7 +226,8 @@ services:
     write_compose(dir.path(), "docker-compose.yml", base);
     write_compose(dir.path(), "docker-compose.override.yml", overlay);
     let files = discover_compose(dir.path(), None).unwrap();
-    let services = load_and_merge(&files).unwrap();
+    let (services, _warnings) = load_and_merge(&files).unwrap();
     assert_eq!(services.len(), 1);
-    assert_eq!(services[0].protocol, Protocol::Udp);
+    assert_eq!(services[0].ports.len(), 1);
+    assert_eq!(services[0].ports[0].protocol, Protocol::Udp);
 }

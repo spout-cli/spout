@@ -46,8 +46,8 @@ pub fn compose(
     let cwd =
         std::env::current_dir().map_err(|e| SpoutError::Io(format!("cwd unreadable: {e}")))?;
     let files = discover_compose(&cwd, explicit_file)?;
-    let services = load_and_merge(&files)?;
-    let warnings = build_warnings(&services);
+    let (services, mut warnings) = load_and_merge(&files)?;
+    warnings.extend(multi_port_warnings(&services));
 
     if services.is_empty() {
         return Ok(ComposeOutcome {
@@ -64,15 +64,20 @@ pub fn compose(
     Ok(ComposeOutcome { summary, warnings })
 }
 
-fn load_and_merge(files: &ComposeFiles) -> Result<Vec<ComposeService>, SpoutError> {
-    let base = read_and_parse(&files.base)?;
-    match &files.overlay {
-        Some(overlay) => Ok(compose::merge_services(base, read_and_parse(overlay)?)),
-        None => Ok(base),
-    }
+fn load_and_merge(files: &ComposeFiles) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
+    let (base, mut warnings) = read_and_parse(&files.base)?;
+    let services = match &files.overlay {
+        Some(overlay) => {
+            let (over, over_warnings) = read_and_parse(overlay)?;
+            warnings.extend(over_warnings);
+            compose::merge_services(base, over)
+        }
+        None => base,
+    };
+    Ok((services, warnings))
 }
 
-fn read_and_parse(file: &Path) -> Result<Vec<ComposeService>, SpoutError> {
+fn read_and_parse(file: &Path) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
     let yaml = std::fs::read_to_string(file)
         .map_err(|e| SpoutError::ComposeInvalid(format!("read {}: {e}", file.display())))?;
     compose::parse(&yaml)
@@ -85,17 +90,15 @@ fn display_files(files: &ComposeFiles) -> String {
     }
 }
 
-fn build_warnings(services: &[ComposeService]) -> Vec<String> {
-    // BTreeMap iteration gives services in alphabetical order already, so
-    // the resulting warnings are sorted without any further sort() call.
+fn multi_port_warnings(services: &[ComposeService]) -> Vec<String> {
     services
         .iter()
-        .filter(|s| s.extra_ports > 0)
+        .filter(|s| s.ports.len() > 1)
         .map(|s| {
             format!(
                 "'{}' declares {} ports; allocating only the first",
                 s.name,
-                s.extra_ports + 1,
+                s.ports.len(),
             )
         })
         .collect()
@@ -110,12 +113,13 @@ fn build_allocations<'a>(
         services
             .iter()
             .map(|s| {
+                let first = &s.ports[0];
                 let (port, is_new) =
-                    allocator::alloc_within_lock(r, &project, &s.name, s.protocol)?;
+                    allocator::alloc_within_lock(r, &project, &s.name, first.protocol)?;
                 Ok(Allocation {
                     name: &s.name,
                     port,
-                    protocol: s.protocol,
+                    protocol: first.protocol,
                     is_new,
                 })
             })
