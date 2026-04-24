@@ -82,10 +82,10 @@ fn parse_port(spec: &PortSpec) -> Option<ComposePort> {
             target, protocol, ..
         } => target.map(|container_port| ComposePort {
             container_port,
-            protocol: match protocol.as_deref() {
-                Some(p) if p.eq_ignore_ascii_case("udp") => Protocol::Udp,
-                _ => Protocol::Tcp,
-            },
+            protocol: protocol
+                .as_deref()
+                .and_then(protocol_from_str)
+                .unwrap_or(Protocol::Tcp),
         }),
     }
 }
@@ -95,9 +95,7 @@ fn parse_port(spec: &PortSpec) -> Option<ComposePort> {
 /// skips them with a warning.
 fn parse_short(s: &str) -> Option<ComposePort> {
     let (port_part, protocol) = match s.rsplit_once('/') {
-        Some((left, proto)) if proto.eq_ignore_ascii_case("udp") => (left, Protocol::Udp),
-        Some((left, proto)) if proto.eq_ignore_ascii_case("tcp") => (left, Protocol::Tcp),
-        Some(_) => return None,
+        Some((left, proto)) => (left, protocol_from_str(proto)?),
         None => (s, Protocol::Tcp),
     };
     let container_token = port_part.rsplit(':').next()?;
@@ -106,6 +104,16 @@ fn parse_short(s: &str) -> Option<ComposePort> {
         container_port,
         protocol,
     })
+}
+
+fn protocol_from_str(s: &str) -> Option<Protocol> {
+    if s.eq_ignore_ascii_case("tcp") {
+        Some(Protocol::Tcp)
+    } else if s.eq_ignore_ascii_case("udp") {
+        Some(Protocol::Udp)
+    } else {
+        None
+    }
 }
 
 #[derive(Deserialize)]

@@ -99,7 +99,9 @@ fn build_allocations(
     registry::with_lock(registry_path, |r| {
         let mut allocations = Vec::new();
         for service in services {
-            allocate_service(r, project, service, &mut allocations, warnings)?;
+            let (allocs, warns) = allocate_service(r, project, service)?;
+            allocations.extend(allocs);
+            warnings.extend(warns);
         }
         Ok(allocations)
     })
@@ -109,9 +111,9 @@ fn allocate_service(
     r: &mut registry::Registry,
     project: &str,
     service: &ComposeService,
-    allocations: &mut Vec<Allocation>,
-    warnings: &mut Vec<String>,
-) -> Result<(), SpoutError> {
+) -> Result<(Vec<Allocation>, Vec<String>), SpoutError> {
+    let mut allocations = Vec::new();
+    let mut warnings = Vec::new();
     let mut used = std::collections::HashSet::<String>::new();
     for (idx, port) in service.ports.iter().enumerate() {
         let name = if idx == 0 {
@@ -134,7 +136,7 @@ fn allocate_service(
             is_new,
         });
     }
-    Ok(())
+    Ok((allocations, warnings))
 }
 
 fn discover_compose(cwd: &Path, explicit: Option<&Path>) -> Result<ComposeFiles, SpoutError> {
