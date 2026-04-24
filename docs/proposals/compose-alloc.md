@@ -212,16 +212,13 @@ entry point; the new module adds `commands::alloc::compose()`.
 
 ## Open questions
 
-1. **Multi-port service naming.** Real compose services sometimes
-   declare both HTTP and HTTPS on the same container. MVP allocates
-   the first and warns. Long-term options:
-   - Flag: `spout alloc --multi-port` auto-names as `service-1`,
-     `service-2`.
-   - Use compose's long-form `name:` field when present
-     (compose-spec ≥ 3.7): `{name: http, target: 8080}` → `service-http`.
-   - Require manual split (status quo for MVP).
-   Recommendation: ship the warning; revisit when a real user hits
-   it. The long-form `name:` path is the cleanest if we add it.
+1. **Multi-port service naming.** _Resolved — every port is
+   registered. The first keeps the bare service name; extras are
+   suffixed with their container port (e.g. `mailpit` +
+   `mailpit-1025`). Collisions beyond the first port (same container
+   port declared twice) skip with a stderr warning rather than
+   invent a hidden `-2` discriminator. The long-form `name:` path is
+   still the cleanest refinement if we ever want user-chosen names._
 
 2. **`--dry-run`.** `spout prune --dry-run` is useful. Compose
    allocation is mostly idempotent, so a dry run matters less — but
