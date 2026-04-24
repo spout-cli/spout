@@ -59,7 +59,8 @@ pub fn compose(
         });
     }
 
-    let allocations = build_allocations(registry_path, &services)?;
+    let project = project::current_project()?;
+    let allocations = build_allocations(registry_path, &project, &services)?;
     let summary = format_compose_summary(&files, &allocations);
     Ok(ComposeOutcome { summary, warnings })
 }
@@ -106,16 +107,16 @@ fn multi_port_warnings(services: &[ComposeService]) -> Vec<String> {
 
 fn build_allocations<'a>(
     registry_path: &Path,
+    project: &str,
     services: &'a [ComposeService],
 ) -> Result<Vec<Allocation<'a>>, SpoutError> {
-    let project = project::current_project()?;
     registry::with_lock(registry_path, |r| {
         services
             .iter()
             .map(|s| {
                 let first = &s.ports[0];
                 let (port, is_new) =
-                    allocator::alloc_within_lock(r, &project, &s.name, first.protocol)?;
+                    allocator::alloc_within_lock(r, project, &s.name, first.protocol)?;
                 Ok(Allocation {
                     name: &s.name,
                     port,

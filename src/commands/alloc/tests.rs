@@ -1,5 +1,27 @@
 use super::*;
+use crate::registry;
+use compose::ComposePort;
 use tempfile::TempDir;
+
+fn port(container_port: u16, protocol: Protocol) -> ComposePort {
+    ComposePort {
+        container_port,
+        protocol,
+    }
+}
+
+fn svc(name: &str, ports: Vec<ComposePort>) -> ComposeService {
+    ComposeService {
+        name: name.to_string(),
+        ports,
+    }
+}
+
+fn temp_registry() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("spout.json");
+    (dir, path)
+}
 
 fn write_compose(dir: &Path, filename: &str, contents: &str) {
     std::fs::write(dir.join(filename), contents).unwrap();
@@ -230,4 +252,80 @@ services:
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].ports.len(), 1);
     assert_eq!(services[0].ports[0].protocol, Protocol::Udp);
+}
+
+#[test]
+fn build_allocations_registers_every_port_of_multi_port_service() {
+    let (_dir, path) = temp_registry();
+    let services = vec![svc(
+        "mailpit",
+        vec![port(8025, Protocol::Tcp), port(1025, Protocol::Tcp)],
+    )];
+    let allocs = build_allocations(&path, "proj", &services).unwrap();
+    assert_eq!(allocs.len(), 2);
+    assert_eq!(allocs[0].name, "mailpit");
+    assert_eq!(allocs[1].name, "mailpit-1025");
+    assert_ne!(allocs[0].port, allocs[1].port);
+    let reg = registry::read(&path).unwrap();
+    assert_eq!(reg.get("proj", "mailpit"), Some(allocs[0].port));
+    assert_eq!(reg.get("proj", "mailpit-1025"), Some(allocs[1].port));
+}
+
+#[test]
+fn build_allocations_multi_port_is_idempotent() {
+    let (_dir, path) = temp_registry();
+    let services = vec![svc(
+        "mailpit",
+        vec![port(8025, Protocol::Tcp), port(1025, Protocol::Tcp)],
+    )];
+    let first = build_allocations(&path, "proj", &services).unwrap();
+    let second = build_allocations(&path, "proj", &services).unwrap();
+    assert_eq!(first[0].port, second[0].port);
+    assert_eq!(first[1].port, second[1].port);
+    assert!(first.iter().all(|a| a.is_new));
+    assert!(second.iter().all(|a| !a.is_new));
+}
+
+#[test]
+fn build_allocations_multi_port_mixed_tcp_udp() {
+    let (_dir, path) = temp_registry();
+    let services = vec![svc(
+        "dns",
+        vec![port(53, Protocol::Tcp), port(53, Protocol::Udp)],
+    )];
+    let allocs = build_allocations(&path, "proj", &services).unwrap();
+    assert_eq!(allocs.len(), 2);
+    assert_eq!(allocs[0].name, "dns");
+    assert_eq!(allocs[0].protocol, Protocol::Tcp);
+    assert_eq!(allocs[1].name, "dns-53");
+    assert_eq!(allocs[1].protocol, Protocol::Udp);
+}
+
+#[test]
+fn build_allocations_single_port_service_keeps_bare_name() {
+    let (_dir, path) = temp_registry();
+    let services = vec![svc("postgres", vec![port(5432, Protocol::Tcp)])];
+    let allocs = build_allocations(&path, "proj", &services).unwrap();
+    assert_eq!(allocs.len(), 1);
+    assert_eq!(allocs[0].name, "postgres");
+}
+
+#[test]
+fn build_allocations_duplicate_container_port_skipped() {
+    // Pathological input — same container port declared twice after the
+    // first. The duplicate would collide with itself on the suffix
+    // naming, so we skip it rather than invent a hidden discriminator.
+    let (_dir, path) = temp_registry();
+    let services = vec![svc(
+        "svc",
+        vec![
+            port(80, Protocol::Tcp),
+            port(80, Protocol::Udp),
+            port(80, Protocol::Udp),
+        ],
+    )];
+    let allocs = build_allocations(&path, "proj", &services).unwrap();
+    assert_eq!(allocs.len(), 2);
+    assert_eq!(allocs[0].name, "svc");
+    assert_eq!(allocs[1].name, "svc-80");
 }
