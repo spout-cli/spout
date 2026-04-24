@@ -144,12 +144,13 @@ compose file is faster than naming each service by hand:
 
 ```bash
 $ spout alloc
-docker-compose.yml → 4 services allocated.
+docker-compose.yml → 5 ports allocated.
 
-  postgres  20000  tcp
-  redis     20001  tcp
-  dns       20002  udp
-  api       20003  tcp
+  postgres      20000  tcp
+  redis         20001  tcp
+  dns           20002  udp
+  mailpit       20003  tcp
+  mailpit-1025  20004  tcp
 ```
 
 With no service name, `spout alloc` looks for `docker-compose.yml`,
@@ -167,14 +168,16 @@ gets TCP. Re-running is idempotent: services that were already registered
 keep their ports, and the summary header makes the split visible:
 
 ```
-docker-compose.yml → 4 services (1 new, 3 existing).
+docker-compose.yml → 5 ports (1 new, 4 existing).
 ```
 
 Services with no `ports:` block are skipped. Services that declare
-multiple ports allocate the first and emit a stderr warning; split them
-into separate compose services if you need all of them registered. For
-fine-grained scenarios (UDP-only, `extends`, `${VAR}` interpolation) use
-the single-service form: `spout alloc <name> --udp`.
+multiple ports get one registration per port — the first keeps the bare
+service name, extras are suffixed with their container port. A mailpit
+service with `["8025:8025", "1025:1025"]` becomes `mailpit` and
+`mailpit-1025`. For fine-grained scenarios (UDP-only, `extends`,
+`${VAR}` interpolation) use the single-service form: `spout alloc <name>
+--udp`.
 
 ### UDP services
 

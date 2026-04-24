@@ -1,6 +1,8 @@
 # `spout alloc` — compose-file inference
 
-_Status: proposal, 2026-04-22. Not committed to a stage yet._
+_Status: implemented. See CHANGELOG for shipped behaviour; the
+multi-port resolution in "Open questions" below describes the
+deviation from this proposal's original MVP._
 
 ## Context
 
@@ -124,11 +126,14 @@ doesn't fail the whole allocation because one entry is weird.
 - **One port per service (MVP).** The most common case. Service name
   from the compose `services.<name>:` key, port allocated from
   spout's 20000–32767 range, protocol from the port spec.
-- **Multi-port services.** If a service declares 2+ ports, MVP
-  allocates only the first and emits a stderr warning:
-  `spout: 'api' declares 2 ports; allocating only the first (split
-  multi-port services into separate compose services, or see
-  --multi-port in a future release)`. An open question below.
+- **Multi-port services.** _Shipped behaviour (deviates from the
+  original MVP): every declared port gets its own registration. The
+  first port keeps the bare service name; extras are suffixed with
+  their container port (e.g. mailpit `["8025:8025", "1025:1025"]`
+  registers `mailpit` and `mailpit-1025`). A stderr warning is
+  emitted only when the same container port is declared twice within
+  a service — that duplicate is skipped. See resolved open question
+  #1 below._
 - **Existing registrations stay.** Same idempotency as today —
   `allocator::alloc()` returns an existing port for the (project,
   service) pair without probing.
@@ -212,16 +217,13 @@ entry point; the new module adds `commands::alloc::compose()`.
 
 ## Open questions
 
-1. **Multi-port service naming.** Real compose services sometimes
-   declare both HTTP and HTTPS on the same container. MVP allocates
-   the first and warns. Long-term options:
-   - Flag: `spout alloc --multi-port` auto-names as `service-1`,
-     `service-2`.
-   - Use compose's long-form `name:` field when present
-     (compose-spec ≥ 3.7): `{name: http, target: 8080}` → `service-http`.
-   - Require manual split (status quo for MVP).
-   Recommendation: ship the warning; revisit when a real user hits
-   it. The long-form `name:` path is the cleanest if we add it.
+1. **Multi-port service naming.** _Resolved — every port is
+   registered. The first keeps the bare service name; extras are
+   suffixed with their container port (e.g. `mailpit` +
+   `mailpit-1025`). Collisions beyond the first port (same container
+   port declared twice) skip with a stderr warning rather than
+   invent a hidden `-2` discriminator. The long-form `name:` path is
+   still the cleanest refinement if we ever want user-chosen names._
 
 2. **`--dry-run`.** `spout prune --dry-run` is useful. Compose
    allocation is mostly idempotent, so a dry run matters less — but
@@ -242,11 +244,11 @@ entry point; the new module adds `commands::alloc::compose()`.
    without ports (skip + warning). An `extends`-aware follow-up is a
    separate proposal.
 
-5. **Protocol for multi-protocol services.** A compose service that
-   binds both TCP 53 and UDP 53 (like a DNS resolver) declares
-   `ports: ["53:53/tcp", "53:53/udp"]`. MVP's "first port wins"
-   rule gives it one protocol and drops the other. Same multi-port
-   naming problem; same deferral.
+5. **Protocol for multi-protocol services.** _Resolved alongside
+   #1. A compose service declaring `["53:53/tcp", "53:53/udp"]`
+   registers both: `dns` (tcp) and `dns-53` (udp). TCP and UDP at
+   the same port number are independent in the registry already, so
+   nothing special is needed beyond the suffix naming._
 
 ## Out of scope
 

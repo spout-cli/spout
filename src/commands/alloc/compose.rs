@@ -1,7 +1,8 @@
 //! Parse a docker-compose file into the minimal shape the allocator
-//! needs: one entry per service, with protocol inferred from the
-//! first port declaration. No filesystem access, no lock access —
-//! just `&str` in, `Vec<ComposeService>` out.
+//! needs: one entry per service, carrying every declared `(container
+//! port, protocol)` pair. No filesystem access, no lock access — just
+//! `&str` in, `(Vec<ComposeService>, Vec<String>)` out where the second
+//! element holds per-spec parse warnings for the caller to print.
 
 use serde::Deserialize;
 
@@ -11,21 +12,28 @@ use crate::protocol::Protocol;
 #[derive(Debug, PartialEq)]
 pub(super) struct ComposeService {
     pub name: String,
-    pub protocol: Protocol,
-    /// `N - 1` when a service declares N ports (for the "multi-port,
-    /// allocating only the first" stderr warning in Commit 4). `0`
-    /// otherwise.
-    pub extra_ports: usize,
+    /// Declaration order as found in the compose file. Non-empty after
+    /// `service_entry` — services whose ports all failed to parse are
+    /// dropped entirely.
+    pub ports: Vec<ComposePort>,
 }
 
-pub(super) fn parse(yaml: &str) -> Result<Vec<ComposeService>, SpoutError> {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub(super) struct ComposePort {
+    pub container_port: u16,
+    pub protocol: Protocol,
+}
+
+pub(super) fn parse(yaml: &str) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
     let doc: ComposeDoc = serde_yaml_ng::from_str(yaml)
         .map_err(|e| SpoutError::ComposeInvalid(format!("parse failed: {e}")))?;
-    Ok(doc
+    let mut warnings = Vec::new();
+    let services = doc
         .services
         .into_iter()
-        .filter_map(|(name, def)| service_entry(name, def))
-        .collect())
+        .filter_map(|(name, def)| service_entry(name, def, &mut warnings))
+        .collect();
+    Ok((services, warnings))
 }
 
 /// Override-wins per service. Output is alphabetical.
@@ -41,33 +49,70 @@ pub(super) fn merge_services(
     merged.into_values().collect()
 }
 
-fn service_entry(name: String, def: ServiceDef) -> Option<ComposeService> {
-    let ports = def.ports?;
+fn service_entry(
+    name: String,
+    def: ServiceDef,
+    warnings: &mut Vec<String>,
+) -> Option<ComposeService> {
+    let specs = def.ports?;
+    let mut ports = Vec::with_capacity(specs.len());
+    for (idx, spec) in specs.iter().enumerate() {
+        match parse_port(spec) {
+            Some(p) => ports.push(p),
+            None => warnings.push(format!(
+                "'{name}' port spec #{} is unparseable; skipping",
+                idx + 1
+            )),
+        }
+    }
     if ports.is_empty() {
         return None;
     }
-    let protocol = port_protocol(&ports[0]);
-    Some(ComposeService {
-        name,
+    Some(ComposeService { name, ports })
+}
+
+fn parse_port(spec: &PortSpec) -> Option<ComposePort> {
+    match spec {
+        PortSpec::Short(s) => parse_short(s),
+        PortSpec::Numeric(n) => u16::try_from(*n).ok().map(|container_port| ComposePort {
+            container_port,
+            protocol: Protocol::Tcp,
+        }),
+        PortSpec::Long {
+            target, protocol, ..
+        } => target.map(|container_port| ComposePort {
+            container_port,
+            protocol: protocol
+                .as_deref()
+                .and_then(protocol_from_str)
+                .unwrap_or(Protocol::Tcp),
+        }),
+    }
+}
+
+/// Short-form grammar: `[[host_ip:]host_port:]container_port[/protocol]`.
+/// Ranges (`9000-9005`) and non-numeric tokens return `None` — the caller
+/// skips them with a warning.
+fn parse_short(s: &str) -> Option<ComposePort> {
+    let (port_part, protocol) = match s.rsplit_once('/') {
+        Some((left, proto)) => (left, protocol_from_str(proto)?),
+        None => (s, Protocol::Tcp),
+    };
+    let container_token = port_part.rsplit(':').next()?;
+    let container_port = container_token.parse::<u16>().ok()?;
+    Some(ComposePort {
+        container_port,
         protocol,
-        extra_ports: ports.len() - 1,
     })
 }
 
-fn port_protocol(spec: &PortSpec) -> Protocol {
-    match spec {
-        PortSpec::Short(s) => {
-            if s.to_ascii_lowercase().contains("/udp") {
-                Protocol::Udp
-            } else {
-                Protocol::Tcp
-            }
-        }
-        PortSpec::Numeric(_) => Protocol::Tcp,
-        PortSpec::Long { protocol, .. } => match protocol.as_deref() {
-            Some(p) if p.eq_ignore_ascii_case("udp") => Protocol::Udp,
-            _ => Protocol::Tcp,
-        },
+fn protocol_from_str(s: &str) -> Option<Protocol> {
+    if s.eq_ignore_ascii_case("tcp") {
+        Some(Protocol::Tcp)
+    } else if s.eq_ignore_ascii_case("udp") {
+        Some(Protocol::Udp)
+    } else {
+        None
     }
 }
 
@@ -99,239 +144,4 @@ enum PortSpec {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn names(services: &[ComposeService]) -> Vec<&str> {
-        services.iter().map(|s| s.name.as_str()).collect()
-    }
-
-    #[test]
-    fn empty_doc_yields_empty_vec() {
-        assert!(parse("").unwrap().is_empty());
-        assert!(parse("services: {}").unwrap().is_empty());
-    }
-
-    #[test]
-    fn short_form_numeric_is_tcp() {
-        let yaml = r#"
-            services:
-              postgres:
-                ports: ["5432"]
-        "#;
-        let got = parse(yaml).unwrap();
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].name, "postgres");
-        assert_eq!(got[0].protocol, Protocol::Tcp);
-        assert_eq!(got[0].extra_ports, 0);
-    }
-
-    #[test]
-    fn host_container_form_is_tcp() {
-        let yaml = r#"
-            services:
-              postgres:
-                ports: ["5432:5432"]
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Tcp);
-    }
-
-    #[test]
-    fn slash_udp_suffix_is_udp() {
-        let yaml = r#"
-            services:
-              dns:
-                ports: ["53:53/udp"]
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Udp);
-    }
-
-    #[test]
-    fn bind_ip_shorthand_parses_as_tcp() {
-        let yaml = r#"
-            services:
-              pg:
-                ports: ["127.0.0.1:5432:5432"]
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Tcp);
-    }
-
-    #[test]
-    fn long_form_with_udp_protocol() {
-        let yaml = r#"
-            services:
-              api:
-                ports:
-                  - target: 8080
-                    protocol: udp
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Udp);
-    }
-
-    #[test]
-    fn long_form_default_protocol_is_tcp() {
-        let yaml = r#"
-            services:
-              api:
-                ports:
-                  - target: 8080
-                    published: 8080
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Tcp);
-    }
-
-    #[test]
-    fn numeric_port_without_quotes_is_tcp() {
-        let yaml = r#"
-            services:
-              api:
-                ports:
-                  - 8080
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Tcp);
-    }
-
-    #[test]
-    fn services_without_ports_are_skipped() {
-        let yaml = r#"
-            services:
-              postgres:
-                ports: ["5432"]
-              web:
-                image: nginx
-        "#;
-        assert_eq!(names(&parse(yaml).unwrap()), vec!["postgres"]);
-    }
-
-    #[test]
-    fn services_with_empty_ports_list_are_skipped() {
-        let yaml = r#"
-            services:
-              api:
-                ports: []
-              postgres:
-                ports: ["5432"]
-        "#;
-        assert_eq!(names(&parse(yaml).unwrap()), vec!["postgres"]);
-    }
-
-    #[test]
-    fn multi_port_service_records_extra_port_count() {
-        let yaml = r#"
-            services:
-              api:
-                ports:
-                  - "8080"
-                  - "9229"
-                  - "9230"
-        "#;
-        let got = parse(yaml).unwrap();
-        assert_eq!(got[0].extra_ports, 2);
-        assert_eq!(got[0].protocol, Protocol::Tcp);
-    }
-
-    #[test]
-    fn multi_port_first_wins_for_protocol() {
-        // First spec is UDP, second is TCP; first wins.
-        let yaml = r#"
-            services:
-              dns:
-                ports: ["53:53/udp", "53:53/tcp"]
-        "#;
-        assert_eq!(parse(yaml).unwrap()[0].protocol, Protocol::Udp);
-    }
-
-    #[test]
-    fn malformed_yaml_is_compose_invalid() {
-        let err = parse("services:\n  postgres:\n    ports: [[[[").unwrap_err();
-        assert!(matches!(err, SpoutError::ComposeInvalid(_)));
-    }
-
-    #[test]
-    fn services_field_missing_is_ok_returns_empty() {
-        // A compose file with no top-level services key yields no
-        // candidates. Not an error — the file is valid YAML.
-        assert!(parse("version: '3'").unwrap().is_empty());
-    }
-
-    #[test]
-    fn multiple_services_preserve_names() {
-        let yaml = r#"
-            services:
-              postgres:
-                ports: ["5432"]
-              redis:
-                ports: ["6379"]
-              coredns:
-                ports: ["53:53/udp"]
-        "#;
-        let got = parse(yaml).unwrap();
-        let mut got_names = names(&got);
-        got_names.sort();
-        assert_eq!(got_names, vec!["coredns", "postgres", "redis"]);
-    }
-
-    fn svc(name: &str, protocol: Protocol, extra: usize) -> ComposeService {
-        ComposeService {
-            name: name.to_string(),
-            protocol,
-            extra_ports: extra,
-        }
-    }
-
-    #[test]
-    fn merge_overlay_adds_service_not_in_base() {
-        let base = vec![svc("postgres", Protocol::Tcp, 0)];
-        let overlay = vec![svc("api", Protocol::Tcp, 0)];
-        let merged = merge_services(base, overlay);
-        assert_eq!(names(&merged), vec!["api", "postgres"]);
-    }
-
-    #[test]
-    fn merge_overlay_wins_when_both_declare_service() {
-        let base = vec![svc("api", Protocol::Tcp, 0)];
-        let overlay = vec![svc("api", Protocol::Udp, 2)];
-        let merged = merge_services(base, overlay);
-        assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].protocol, Protocol::Udp);
-        assert_eq!(merged[0].extra_ports, 2);
-    }
-
-    #[test]
-    fn merge_preserves_base_only_services() {
-        let base = vec![
-            svc("postgres", Protocol::Tcp, 0),
-            svc("redis", Protocol::Tcp, 0),
-        ];
-        let merged = merge_services(base, vec![]);
-        assert_eq!(names(&merged), vec!["postgres", "redis"]);
-    }
-
-    #[test]
-    fn merge_both_empty_is_empty() {
-        assert!(merge_services(vec![], vec![]).is_empty());
-    }
-
-    #[test]
-    fn merge_result_is_alphabetical() {
-        let base = vec![
-            svc("redis", Protocol::Tcp, 0),
-            svc("alpha", Protocol::Tcp, 0),
-        ];
-        let overlay = vec![
-            svc("zulu", Protocol::Tcp, 0),
-            svc("bravo", Protocol::Tcp, 0),
-        ];
-        let merged = merge_services(base, overlay);
-        assert_eq!(names(&merged), vec!["alpha", "bravo", "redis", "zulu"]);
-    }
-
-    #[test]
-    fn merge_protocol_follows_winning_file() {
-        // Base says TCP for coredns; overlay says UDP. Overlay wins.
-        let base = vec![svc("coredns", Protocol::Tcp, 0)];
-        let overlay = vec![svc("coredns", Protocol::Udp, 0)];
-        let merged = merge_services(base, overlay);
-        assert_eq!(merged[0].protocol, Protocol::Udp);
-    }
-}
+mod tests;

@@ -205,8 +205,11 @@ spout get <service> --project <NAME>
 spout alloc <service>
 
 # With no service name, reads a compose file in CWD (or -f <PATH>) and
-# allocates one port per declared service in a single transaction.
-# Protocol inferred per-service from the port spec. Tabular output. [MUTATES]
+# allocates a host port for every declared port in a single transaction.
+# Multi-port services register each port: the first keeps the bare
+# service name, extras are suffixed with their container port (e.g.
+# mailpit + mailpit-1025). Protocol inferred per port from the port
+# spec. Tabular output. [MUTATES]
 spout alloc
 spout alloc -f compose.prod.yml
 

@@ -32,13 +32,16 @@ spout alloc <service> [--udp]
 
 spout alloc [-f <PATH>]
   With no service name, reads a compose file (docker-compose.yml / .yaml /
-  compose.yml / .yaml, auto-detected in CWD, or `-f` override) and allocates one
-  port per declared service in a single registry transaction. Protocol is inferred
-  from each service's port spec (`/udp` suffix or long-form `protocol: udp` → UDP,
-  everything else → TCP). Multi-port services get the first port plus a stderr
-  warning. Services without a `ports:` block are skipped. Idempotent: existing
-  registrations keep their ports. Output is a tabular summary.
-  MUTATES REGISTRY. Exit code 8 if the compose file is missing or malformed.
+  compose.yml / .yaml, auto-detected in CWD, or `-f` override) and allocates a
+  host port for every declared port in a single registry transaction. Protocol
+  is inferred from each port spec (`/udp` suffix or long-form `protocol: udp` →
+  UDP, everything else → TCP). Multi-port services get one registration per
+  port: the first keeps the bare service name, extras are suffixed with their
+  container port (e.g. mailpit with `["8025:8025", "1025:1025"]` registers
+  `mailpit` and `mailpit-1025`). Services without a `ports:` block are skipped.
+  Idempotent: existing registrations keep their ports. Output is a tabular
+  summary. MUTATES REGISTRY. Exit code 8 if the compose file is missing or
+  malformed.
 
 spout set <service> <port> [--udp]
   Manually registers a specific port for <service>. MUTATES REGISTRY.
