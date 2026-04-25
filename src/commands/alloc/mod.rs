@@ -33,20 +33,14 @@ struct Allocation {
     is_new: bool,
 }
 
-#[derive(Debug)]
-struct ComposeFiles {
-    base: PathBuf,
-    overlay: Option<PathBuf>,
-}
-
 pub fn compose(
     registry_path: &Path,
-    explicit_file: Option<&Path>,
+    explicit_files: &[PathBuf],
 ) -> Result<ComposeOutcome, SpoutError> {
     let cwd =
         std::env::current_dir().map_err(|e| SpoutError::Io(format!("cwd unreadable: {e}")))?;
-    let files = discover_compose(&cwd, explicit_file)?;
-    let (services, mut warnings) = load_and_merge(&files)?;
+    let files = resolve_compose_files(&cwd, explicit_files)?;
+    let (services, mut warnings) = load_chain(&files)?;
 
     if services.is_empty() {
         return Ok(ComposeOutcome {
@@ -64,17 +58,14 @@ pub fn compose(
     Ok(ComposeOutcome { summary, warnings })
 }
 
-fn load_and_merge(files: &ComposeFiles) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
-    let (base, mut warnings) = read_and_parse(&files.base)?;
-    let services = match &files.overlay {
-        Some(overlay) => {
-            let (over, over_warnings) = read_and_parse(overlay)?;
-            warnings.extend(over_warnings);
-            compose::merge_services(base, over)
-        }
-        None => base,
-    };
-    Ok((services, warnings))
+fn load_chain(files: &[PathBuf]) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
+    let (first, rest) = files.split_first().expect("caller guarantees non-empty");
+    rest.iter()
+        .try_fold(read_and_parse(first)?, |(services, mut warnings), file| {
+            let (next, next_warnings) = read_and_parse(file)?;
+            warnings.extend(next_warnings);
+            Ok((compose::merge_services(services, next), warnings))
+        })
 }
 
 fn read_and_parse(file: &Path) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
@@ -83,11 +74,12 @@ fn read_and_parse(file: &Path) -> Result<(Vec<ComposeService>, Vec<String>), Spo
     compose::parse(&yaml)
 }
 
-fn display_files(files: &ComposeFiles) -> String {
-    match &files.overlay {
-        Some(overlay) => format!("{} + {}", files.base.display(), overlay.display()),
-        None => files.base.display().to_string(),
-    }
+fn display_files(files: &[PathBuf]) -> String {
+    files
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" + ")
 }
 
 fn build_allocations(
@@ -139,24 +131,21 @@ fn allocate_service(
     Ok((allocations, warnings))
 }
 
-fn discover_compose(cwd: &Path, explicit: Option<&Path>) -> Result<ComposeFiles, SpoutError> {
-    if let Some(p) = explicit {
-        return if p.is_file() {
-            Ok(ComposeFiles {
-                base: p.to_owned(),
-                overlay: None,
-            })
-        } else {
-            Err(SpoutError::ComposeNotFound(format!(
+fn resolve_compose_files(cwd: &Path, explicit: &[PathBuf]) -> Result<Vec<PathBuf>, SpoutError> {
+    if !explicit.is_empty() {
+        if let Some(missing) = explicit.iter().find(|p| !p.is_file()) {
+            return Err(SpoutError::ComposeNotFound(format!(
                 "compose file not found: {}",
-                p.display()
-            )))
-        };
+                missing.display()
+            )));
+        }
+        return Ok(explicit.to_vec());
     }
     let base = find_existing(cwd, COMPOSE_FILENAMES);
     let overlay = find_existing(cwd, OVERRIDE_COMPOSE_FILENAMES);
     match (base, overlay) {
-        (Some(base), overlay) => Ok(ComposeFiles { base, overlay }),
+        (Some(base), Some(overlay)) => Ok(vec![base, overlay]),
+        (Some(base), None) => Ok(vec![base]),
         (None, Some(overlay)) => Err(SpoutError::ComposeNotFound(format!(
             "found override compose file {} but no base; pass -f <PATH> to specify the base",
             overlay.display()
@@ -176,7 +165,7 @@ fn find_existing(cwd: &Path, names: &[&str]) -> Option<PathBuf> {
         .find(|c| c.is_file())
 }
 
-fn format_compose_summary(files: &ComposeFiles, allocations: &[Allocation]) -> String {
+fn format_compose_summary(files: &[PathBuf], allocations: &[Allocation]) -> String {
     let total = allocations.len();
     let new_count = allocations.iter().filter(|a| a.is_new).count();
     let display = display_files(files);

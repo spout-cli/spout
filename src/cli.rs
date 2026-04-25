@@ -40,10 +40,11 @@ pub enum Commands {
         /// Allocate a UDP port instead of TCP (single-service mode only)
         #[arg(long)]
         udp: bool,
-        /// Compose file path. Default: auto-detect in the current
-        /// directory. Ignored when <service> is given.
+        /// Compose file path. Repeat to chain files (last wins on conflicts).
+        /// Default: auto-detect in the current directory. Ignored when
+        /// <service> is given.
         #[arg(short = 'f', long = "file", value_name = "PATH")]
-        file: Option<PathBuf>,
+        files: Vec<PathBuf>,
     },
 
     /// Register a specific port manually [MUTATES REGISTRY]
@@ -136,10 +137,14 @@ mod tests {
     fn parses_alloc() {
         let cli = Cli::try_parse_from(["spout", "alloc", "postgres"]).unwrap();
         match cli.command {
-            Commands::Alloc { service, udp, file } => {
+            Commands::Alloc {
+                service,
+                udp,
+                files,
+            } => {
                 assert_eq!(service.as_deref(), Some("postgres"));
                 assert!(!udp);
-                assert!(file.is_none());
+                assert!(files.is_empty());
             }
             other => panic!("expected Alloc, got {other:?}"),
         }
@@ -149,10 +154,14 @@ mod tests {
     fn parses_alloc_with_udp_flag() {
         let cli = Cli::try_parse_from(["spout", "alloc", "dns", "--udp"]).unwrap();
         match cli.command {
-            Commands::Alloc { service, udp, file } => {
+            Commands::Alloc {
+                service,
+                udp,
+                files,
+            } => {
                 assert_eq!(service.as_deref(), Some("dns"));
                 assert!(udp);
-                assert!(file.is_none());
+                assert!(files.is_empty());
             }
             other => panic!("expected Alloc, got {other:?}"),
         }
@@ -162,10 +171,14 @@ mod tests {
     fn parses_alloc_with_no_service_and_no_file() {
         let cli = Cli::try_parse_from(["spout", "alloc"]).unwrap();
         match cli.command {
-            Commands::Alloc { service, udp, file } => {
+            Commands::Alloc {
+                service,
+                udp,
+                files,
+            } => {
                 assert!(service.is_none());
                 assert!(!udp);
-                assert!(file.is_none());
+                assert!(files.is_empty());
             }
             other => panic!("expected Alloc, got {other:?}"),
         }
@@ -175,11 +188,36 @@ mod tests {
     fn parses_alloc_with_file_flag() {
         let cli = Cli::try_parse_from(["spout", "alloc", "-f", "compose.prod.yml"]).unwrap();
         match cli.command {
-            Commands::Alloc { service, file, .. } => {
+            Commands::Alloc { service, files, .. } => {
                 assert!(service.is_none());
+                assert_eq!(files, vec![std::path::PathBuf::from("compose.prod.yml")]);
+            }
+            other => panic!("expected Alloc, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_alloc_with_multiple_file_flags_in_order() {
+        let cli = Cli::try_parse_from([
+            "spout",
+            "alloc",
+            "-f",
+            "base.yml",
+            "-f",
+            "override.yml",
+            "-f",
+            "local.yml",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Alloc { files, .. } => {
                 assert_eq!(
-                    file.as_deref(),
-                    Some(std::path::Path::new("compose.prod.yml"))
+                    files,
+                    vec![
+                        std::path::PathBuf::from("base.yml"),
+                        std::path::PathBuf::from("override.yml"),
+                        std::path::PathBuf::from("local.yml"),
+                    ]
                 );
             }
             other => panic!("expected Alloc, got {other:?}"),

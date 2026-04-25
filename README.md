@@ -155,12 +155,23 @@ docker-compose.yml → 5 ports allocated.
 
 With no service name, `spout alloc` looks for `docker-compose.yml`,
 `docker-compose.yaml`, `compose.yml`, or `compose.yaml` in the current
-directory (first match wins). Pass `-f <PATH>` to point at a specific
-file:
+directory (first match wins). If a sibling `docker-compose.override.yml`
+(or matching `.override.*` variant) exists, it's auto-loaded on top —
+mirroring `docker compose up` — so services that only get their `ports:`
+in the override still show up.
 
 ```bash
-spout alloc -f compose.prod.yml
+spout alloc -f compose.prod.yml                    # single file
+spout alloc -f base.yml -f overrides.yml -f local  # chain, last wins
 ```
+
+Repeat `-f` to chain files explicitly; merge runs left-to-right and the
+last file wins on per-service conflicts. Passing `-f` disables the
+auto-detect sweep — no silent override pickup. When spout's override
+merge diverges from docker compose's append-and-dedup semantics for the
+`ports:` field, it does so intentionally: spout consumes only the first
+port plus its protocol, so "override wins" produces the same observable
+outcome for every realistic case.
 
 Protocol is inferred from each service's port spec — `"53:53/udp"` or a
 long-form `protocol: udp` field allocates a UDP port, everything else
@@ -168,7 +179,7 @@ gets TCP. Re-running is idempotent: services that were already registered
 keep their ports, and the summary header makes the split visible:
 
 ```
-docker-compose.yml → 5 ports (1 new, 4 existing).
+docker-compose.yml + docker-compose.override.yml → 5 ports (1 new, 4 existing).
 ```
 
 Services with no `ports:` block are skipped. Services that declare
