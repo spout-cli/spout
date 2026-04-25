@@ -8,14 +8,15 @@ scan only read the first.
 
 ## What shipped
 
-Tests 199 → 216 (+17). All files under 400 lines.
+Tests 199 → 226 (+27, including the merge with PR #10's multi-port
+work). All files under 400 lines.
 
-Commits on `main`:
-1. `257bf1b docs: plan stage 9 — compose override file support`
-2. `d4a4b21 feat(alloc): auto-detect compose override alongside base`
-3. `56b3dc2 feat(cli,alloc): chain multiple -f files, last wins`
-4. `2c2b791 refactor: simplify-review pass on stage 9 commit 2`
-5. `c3b8fdb docs: compose override + multi-f support in spout alloc`
+Commits 1 and 2 of the original plan (`257bf1b`, `d4a4b21`) reached
+`main` directly. The remaining commits — multi-`-f`, simplify polish,
+docs, this retrospective — were pushed to `stage-9-compose-overrides`
+and rebased onto post-#10 `main` after parallel work landed there;
+the final shipped commit hashes are the post-rebase ones, not the
+hashes referenced inside this document.
 
 ## What the plan got right
 
@@ -69,6 +70,34 @@ Commits on `main`:
   PRD exit-code semantics (surface `ComposeNotFound` rather than
   a later `ComposeInvalid` when the file genuinely doesn't exist).
   Kept as-is.
+
+## What we didn't see coming
+
+A separate Claude session (PR #10, branch
+`claude/fix-spout-docker-compose-qe00h`) shipped multi-port
+registration to `main` while this branch was mid-flight. Both touched
+`ComposeService` and `compose.rs`: ours added override discovery and
+the `merge_services` helper, theirs reshaped `ComposeService` to carry
+every declared port and dropped the `extra_ports` warning we'd built
+around. The merge was mechanical, not semantic — both features compose
+cleanly:
+
+- Override-wins still applies per service; the per-service payload is
+  now `Vec<ComposePort>` rather than single port + extra-counter.
+- `parse` returns `(Vec<ComposeService>, Vec<String>)` for parse-level
+  warnings; our `load_chain` adopted the tuple via `try_fold` and
+  threads warnings through to `ComposeOutcome`.
+- Their multi-port allocation (suffix extras with `-{container_port}`)
+  now runs against the merged service set, so override files declaring
+  a service's ports correctly produce one allocation per port.
+
+Lesson: there's no in-band signal between concurrent agent sessions on
+the same repo. Spout itself exists to stop two Claudes brute-forcing
+the same ports — but two Claudes can still brute-force the same
+codebase. For a multi-day stage, scan `git log origin/main` before each
+session start; for a feature-branch PR, expect the merge base to drift
+under you and plan for a rebase pass before merge rather than treating
+push as the finish line.
 
 ## Learnings for future stages
 
