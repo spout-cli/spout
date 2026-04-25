@@ -204,14 +204,18 @@ spout get <service> --project <NAME>
 # Idempotent: if already registered, returns the existing port.
 spout alloc <service>
 
-# With no service name, reads a compose file in CWD (or -f <PATH>) and
-# allocates a host port for every declared port in a single transaction.
-# Multi-port services register each port: the first keeps the bare
-# service name, extras are suffixed with their container port (e.g.
-# mailpit + mailpit-1025). Protocol inferred per port from the port
-# spec. Tabular output. [MUTATES]
+# With no service name, reads a compose file in CWD and allocates a host
+# port for every declared port in a single transaction. Auto-detect also
+# picks up a sibling docker-compose.override.yml and merges it on top
+# (override-wins per service), matching `docker compose up`. Pass -f to
+# pin a file; repeat -f to chain, last wins on conflicts. Multi-port
+# services register each port: the first keeps the bare service name,
+# extras are suffixed with their container port (e.g. mailpit +
+# mailpit-1025). Protocol inferred per port from the port spec. Tabular
+# output. [MUTATES]
 spout alloc
 spout alloc -f compose.prod.yml
+spout alloc -f base.yml -f override.yml
 
 # Register a specific port manually [MUTATES]
 spout set <service> <port>

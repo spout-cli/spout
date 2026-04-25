@@ -12,6 +12,9 @@ intentionally has gaps where work didn't fit the stage shape.
 | 04  | *(skipped — see below)*                 | —        | —        |
 | 05  | UDP support                             | ✓        | ✓        |
 | 06  | `spout prune`                           | ✓        | ✓        |
+| 07  | `spout alloc` from `docker-compose.yml` | ✓        | ✓        |
+| 08  | `--project` on `rm` and `get`           | ✓        | ✓        |
+| 09  | Compose override + multi-`-f` support   | ✓        | ✓        |
 
 ## Why no `04`?
 
