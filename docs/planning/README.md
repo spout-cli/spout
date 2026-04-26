@@ -15,7 +15,7 @@ intentionally has gaps where work didn't fit the stage shape.
 | 07  | `spout alloc` from `docker-compose.yml` | ✓        | ✓        |
 | 08  | `--project` on `rm` and `get`           | ✓        | ✓        |
 | 09  | Compose override + multi-`-f` support   | ✓        | ✓        |
-| 10  | Surface recently-removed in not-found   | ✓        | —        |
+| 10  | Surface recently-removed in not-found   | ✓        | ✓        |
 
 ## Why no `04`?
 
