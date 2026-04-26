@@ -29,8 +29,34 @@ pub fn get(
         None => project::current_project()?,
     };
     let reg = registry::read(registry_path)?;
-    reg.get(&project, service)
-        .ok_or(SpoutError::ServiceNotRegistered)
+    match reg.get(&project, service) {
+        Some(port) => Ok(port),
+        None => Err(not_registered_in_project(&reg, &project, service)),
+    }
+}
+
+/// Builds the rich `ServiceNotRegisteredInProject` error from a fresh
+/// registry view. Shared by `get` and `rm_one` so both surfaces report
+/// the project's actual service names instead of just "not registered".
+pub(super) fn not_registered_in_project(
+    reg: &registry::Registry,
+    project: &str,
+    service: &str,
+) -> SpoutError {
+    let available = reg
+        .projects
+        .get(project)
+        .map(|svcs| {
+            let mut names: Vec<String> = svcs.keys().cloned().collect();
+            names.sort();
+            names
+        })
+        .unwrap_or_default();
+    SpoutError::ServiceNotRegisteredInProject {
+        project: project.to_owned(),
+        service: service.to_owned(),
+        available,
+    }
 }
 
 pub fn set(
@@ -207,6 +233,31 @@ mod tests {
     }
 
     #[test]
+    fn get_failure_in_empty_project_suggests_alloc() {
+        let (_dir, path) = temp_registry();
+        let err = get(&path, "postgres", None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("no services registered"), "got: {msg}");
+        assert!(msg.contains("spout alloc postgres"), "got: {msg}");
+    }
+
+    #[test]
+    fn get_failure_in_populated_project_lists_available_services() {
+        let (_dir, path) = temp_registry();
+        alloc(&path, "postgres", Protocol::default()).unwrap();
+        alloc(&path, "redis", Protocol::default()).unwrap();
+        let err = get(&path, "tyfi-postgres", None).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("tyfi-postgres"),
+            "missing wrong name in: {msg}"
+        );
+        assert!(msg.contains("postgres"), "missing real name in: {msg}");
+        assert!(msg.contains("redis"), "missing redis in: {msg}");
+        assert!(msg.contains("spout env"), "missing env hint in: {msg}");
+    }
+
+    #[test]
     fn get_with_explicit_project_reads_from_that_project() {
         let (_dir, path) = temp_registry();
         registry::with_lock(&path, |r| {
@@ -249,7 +300,7 @@ mod tests {
         rm_current(&path, "postgres").unwrap();
         assert!(matches!(
             get(&path, "postgres", None).unwrap_err(),
-            SpoutError::ServiceNotRegistered
+            SpoutError::ServiceNotRegisteredInProject { .. }
         ));
         let reg = registry::read(&path).unwrap();
         assert_eq!(reg.history.len(), 1);

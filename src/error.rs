@@ -12,6 +12,13 @@ pub enum SpoutError {
     #[error("service not registered")]
     ServiceNotRegistered,
 
+    #[error("{}", format_not_registered_help(.project, .service, .available))]
+    ServiceNotRegisteredInProject {
+        project: String,
+        service: String,
+        available: Vec<String>,
+    },
+
     #[error("no free port found for {service} in range {range_start}-{range_end}")]
     NoFreePortFound {
         service: String,
@@ -48,10 +55,22 @@ pub enum SpoutError {
     Usage(String),
 }
 
+fn format_not_registered_help(project: &str, service: &str, available: &[String]) -> String {
+    if available.is_empty() {
+        format!("no services registered for project '{project}' (try `spout alloc {service}`)")
+    } else {
+        format!(
+            "no service '{service}' in project '{project}'\n  available: {}\n  (try `spout env` for KEY=VALUE)",
+            available.join(", ")
+        )
+    }
+}
+
 impl SpoutError {
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::ServiceNotRegistered => 1,
+            Self::ServiceNotRegisteredInProject { .. } => 1,
             Self::NoFreePortFound { .. } => 2,
             Self::RegistryCorrupt(_) => 3,
             Self::RegistryVersionUnknown(_) => 4,
