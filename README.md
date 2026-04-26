@@ -421,6 +421,8 @@ spout is designed to be used by agents as much as by humans. Three things make t
 - Every mutating command is annotated `[MUTATES REGISTRY]` in its help text
 - `get`/`ls`/`check` are guaranteed read-only — safe to call speculatively
 - Exit codes are stable and documented
+- Failed `get` / `rm` lookups list the project's actual service names on stderr — so an agent that guesses a wrong name (e.g. `tyfi-postgres` when the service is registered as `postgres`) self-corrects rather than allocating a duplicate
+- `list` and `free` work as aliases for `ls` and `rm` — common verb guesses don't hit "unrecognized subcommand"
 
 Drop [this CLAUDE.md template](templates/CLAUDE.md) into your project to teach Claude Code (and others) how to use spout.
 
