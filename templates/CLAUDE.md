@@ -37,10 +37,11 @@ dev:
 POSTGRES_PORT=exec('spout get postgres')
 ```
 
-If `spout get` exits 1, **read the stderr message before doing anything**. It tells you which project you're in and lists the services that *are* registered. Two outcomes:
+If `spout get` exits 1, **read the stderr message before doing anything**. It tells you which project you're in, lists the services that *are* registered, and (if the requested name was recently removed) shows the removal date and reason. Three outcomes:
 
 - The error lists the service under a different name (e.g. you asked for `acme-postgres`, available is `postgres`) — use the real name; do **not** allocate a duplicate.
-- The error says no services are registered yet, or the service genuinely isn't in the list — then `spout alloc <service>` is the right fix.
+- The error includes a `recently removed:` line for the name you asked for — the user may have just removed it. Check the date before allocating; if it's recent, ask the user before resurrecting.
+- The error says no services are registered yet, or the service genuinely isn't in the list (and isn't in `recently removed:`) — then `spout alloc <service>` is the right fix.
 
 **Service names are scoped to the project.** spout already knows which project you're in (from CWD). Use the bare service name (`postgres`), never project-prefixed (`acme-postgres`). If you don't know what the project has, run `spout env` once to enumerate everything.
 

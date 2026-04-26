@@ -25,7 +25,10 @@ spout get <service> [--project <NAME>]
   the project's actual service names so a wrong guess (e.g. asking for
   `acme-postgres` when the real name is `postgres`) self-corrects without
   allocating a duplicate. Service names are scoped to the project — never
-  prefix with the project name.
+  prefix with the project name. If the requested name was recently
+  removed in this project, the message also includes a `recently removed:`
+  line with the date and reason so the agent can pause before resurrecting
+  what the user just deleted.
 
 spout alloc <service> [--udp]
   Finds a free port, registers it for <service> in the current project, and prints it.
