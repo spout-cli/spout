@@ -12,11 +12,12 @@ pub enum SpoutError {
     #[error("service not registered")]
     ServiceNotRegistered,
 
-    #[error("{}", format_not_registered_help(.project, .service, .available))]
+    #[error("{}", format_not_registered_help(.project, .service, .available, .recently_removed.as_ref()))]
     ServiceNotRegisteredInProject {
         project: String,
         service: String,
         available: Vec<String>,
+        recently_removed: Option<RemovedRecord>,
     },
 
     #[error("no free port found for {service} in range {range_start}-{range_end}")]
@@ -55,15 +56,40 @@ pub enum SpoutError {
     Usage(String),
 }
 
-fn format_not_registered_help(project: &str, service: &str, available: &[String]) -> String {
+/// Snapshot of a service's most recent removal record. Independent of
+/// `registry::HistoryEntry` so `error.rs` doesn't depend on registry
+/// types — the mapping happens at the error-construction site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedRecord {
+    pub released: String,
+    pub reason: String,
+}
+
+fn format_not_registered_help(
+    project: &str,
+    service: &str,
+    available: &[String],
+    recently_removed: Option<&RemovedRecord>,
+) -> String {
+    let mut lines = vec![format!("no service '{service}' in project '{project}'")];
     if available.is_empty() {
-        format!("no services registered for project '{project}' (try `spout alloc {service}`)")
+        lines.push("  no services currently registered".to_string());
     } else {
-        format!(
-            "no service '{service}' in project '{project}'\n  available: {}\n  (try `spout env` for KEY=VALUE)",
-            available.join(", ")
-        )
+        lines.push(format!("  available: {}", available.join(", ")));
     }
+    if let Some(r) = recently_removed {
+        lines.push(format!(
+            "  recently removed: {service} ({}, \"{}\")",
+            r.released, r.reason
+        ));
+    }
+    let hint = match (available.is_empty(), recently_removed.is_some()) {
+        (true, false) => format!("  (try `spout alloc {service}`)"),
+        (true, true) => format!("  (try `spout alloc {service}` to register fresh)"),
+        (false, _) => "  (try `spout env` for KEY=VALUE)".to_string(),
+    };
+    lines.push(hint);
+    lines.join("\n")
 }
 
 impl SpoutError {
