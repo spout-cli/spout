@@ -50,8 +50,9 @@ fn rm_one(
 ) -> Result<String, SpoutError> {
     let project = project::resolve_override(project)?;
     registry::with_lock(registry_path, |r| {
-        r.remove(&project, service, "user requested")
-            .ok_or(SpoutError::ServiceNotRegistered)?;
+        if r.remove(&project, service, "user requested").is_none() {
+            return Err(super::not_registered_in_project(r, &project, service));
+        }
         Ok(())
     })?;
     Ok(String::new())

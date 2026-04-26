@@ -58,6 +58,7 @@ pub enum Commands {
 
     /// Remove a registration. With `--project [NAME]` and no service,
     /// removes every service in that project. [MUTATES REGISTRY]
+    #[command(alias = "free")]
     Rm {
         service: Option<String>,
         /// Operate on a named project (or the current project, with no value)
@@ -73,6 +74,7 @@ pub enum Commands {
     },
 
     /// List all registrations [READ ONLY]
+    #[command(alias = "list")]
     Ls {
         /// Filter to a project. With no value, uses the current project.
         #[arg(long, value_name = "NAME", num_args = 0..=1)]
@@ -318,6 +320,21 @@ mod tests {
         match cli.command {
             Commands::Env { project } => assert_eq!(project, Some(Some("foo".to_owned()))),
             other => panic!("expected Env, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ls_accepts_list_alias() {
+        let cli = Cli::try_parse_from(["spout", "list"]).unwrap();
+        assert!(matches!(cli.command, Commands::Ls { .. }));
+    }
+
+    #[test]
+    fn rm_accepts_free_alias() {
+        let cli = Cli::try_parse_from(["spout", "free", "postgres"]).unwrap();
+        match cli.command {
+            Commands::Rm { service, .. } => assert_eq!(service.as_deref(), Some("postgres")),
+            other => panic!("expected Rm, got {other:?}"),
         }
     }
 

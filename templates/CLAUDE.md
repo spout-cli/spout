@@ -37,7 +37,12 @@ dev:
 POSTGRES_PORT=exec('spout get postgres')
 ```
 
-If `spout get` exits 1 (service not registered), the right fix is to run `spout alloc <service>` once — not to pick a port yourself.
+If `spout get` exits 1, **read the stderr message before doing anything**. It tells you which project you're in and lists the services that *are* registered. Two outcomes:
+
+- The error lists the service under a different name (e.g. you asked for `acme-postgres`, available is `postgres`) — use the real name; do **not** allocate a duplicate.
+- The error says no services are registered yet, or the service genuinely isn't in the list — then `spout alloc <service>` is the right fix.
+
+**Service names are scoped to the project.** spout already knows which project you're in (from CWD). Use the bare service name (`postgres`), never project-prefixed (`acme-postgres`). If you don't know what the project has, run `spout env` once to enumerate everything.
 
 ## Project identity
 

@@ -21,7 +21,11 @@ spout get <service> [--project <NAME>]
   <NAME> when --project is given (cross-project read).
   Infers the project name from the current working directory (matches Docker Compose convention).
   READ ONLY — never mutates the registry. Safe to call speculatively.
-  Exit code 1 if the service is not registered.
+  Exit code 1 if the service is not registered. The stderr message lists
+  the project's actual service names so a wrong guess (e.g. asking for
+  `acme-postgres` when the real name is `postgres`) self-corrects without
+  allocating a duplicate. Service names are scoped to the project — never
+  prefix with the project name.
 
 spout alloc <service> [--udp]
   Finds a free port, registers it for <service> in the current project, and prints it.
