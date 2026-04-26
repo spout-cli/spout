@@ -9,7 +9,8 @@ spout splits its commands into two disjoint sets. Agents should only call mutati
 | Command | Effect | When to call |
 |---|---|---|
 | `spout get <service>` | **Read only.** Prints the registered port, exits 1 if not registered. | Any time you need to reference a port in generated code, config, or a command. |
-| `spout ls` | **Read only.** Shows registered services. | When the user asks "what's running?" or when you need to survey. |
+| `spout env` | **Read only.** Prints `KEY=VALUE` lines for every registered service in the project. | When you need every port at once for templating, env files, or shell sourcing. |
+| `spout ls` | **Read only.** Shows registered services. | For relaying state to a human ("what's running?"). Never as agent decision input — use `spout get` or `spout env` for that. |
 | `spout check <port>` | **Read only.** Exit 0 if the port is free, 1 if taken. | Pre-flight checks. |
 | `spout whois <port>` | **Read only.** Reverse lookup — which project/service claims a port. | Debugging "why is port X in use?" |
 | `spout completions <shell>` | **Read only.** Emits shell completion scripts. | Setup time only. |
@@ -64,4 +65,4 @@ export SPOUT_PROJECT="my-monorepo/web"
 
 - **Don't edit `~/.spout.json` directly.** Always go through the CLI so locking and history are respected.
 - **Don't invent port numbers.** If you need a port and `spout get` fails, run `spout alloc` and use what it returns.
-- **Don't pipe `spout ls` output and try to parse the TUI.** When stdout is a pipe or `--no-tui` is passed, the output is stable plain text. Use that for programmatic reads.
+- **Don't parse `spout ls` for agent logic.** When stdout is a pipe or `--no-tui` is passed, the output is stable plain text — but for programmatic reads use `spout get <service>` or `spout env`. `ls` is for showing state to a human.
