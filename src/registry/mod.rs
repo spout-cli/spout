@@ -119,6 +119,19 @@ impl Registry {
         matches.sort_by(|a, b| b.released.cmp(&a.released));
         matches
     }
+
+    /// History lookup for a (project, service) pair. Most-recent release
+    /// first. `released` is an ISO-8601 date so lexical sort matches
+    /// chronological order — every writer goes through `today_iso()`.
+    pub fn history_for_service(&self, project: &str, service: &str) -> Vec<&HistoryEntry> {
+        let mut matches: Vec<_> = self
+            .history
+            .iter()
+            .filter(|e| e.project == project && e.service == service)
+            .collect();
+        matches.sort_by(|a, b| b.released.cmp(&a.released));
+        matches
+    }
 }
 
 fn history_of(
@@ -220,5 +233,76 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].released, "2026-06-01");
         assert_eq!(entries[1].released, "2026-01-01");
+    }
+
+    fn history_entry(
+        project: &str,
+        service: &str,
+        port: u16,
+        released: &str,
+        reason: &str,
+    ) -> HistoryEntry {
+        HistoryEntry {
+            project: project.into(),
+            service: service.into(),
+            port,
+            allocated: "2026-01-01".into(),
+            released: released.into(),
+            reason: reason.into(),
+            protocol: Protocol::default(),
+        }
+    }
+
+    #[test]
+    fn history_for_service_returns_empty_when_never_removed() {
+        let r = Registry::default();
+        assert!(r.history_for_service("p", "postgres").is_empty());
+    }
+
+    #[test]
+    fn history_for_service_filters_by_project_and_service() {
+        let mut r = Registry::default();
+        r.history.push(history_entry(
+            "p",
+            "postgres",
+            20_000,
+            "2026-04-26",
+            "user requested",
+        ));
+        r.history.push(history_entry(
+            "p",
+            "redis",
+            20_001,
+            "2026-04-26",
+            "user requested",
+        ));
+        r.history.push(history_entry(
+            "other",
+            "postgres",
+            20_002,
+            "2026-04-26",
+            "user requested",
+        ));
+        let entries = r.history_for_service("p", "postgres");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project, "p");
+        assert_eq!(entries[0].service, "postgres");
+        assert_eq!(entries[0].port, 20_000);
+    }
+
+    #[test]
+    fn history_for_service_sorts_most_recent_first() {
+        let mut r = Registry::default();
+        r.history
+            .push(history_entry("p", "api", 20_000, "2026-01-01", "first"));
+        r.history
+            .push(history_entry("p", "api", 20_001, "2026-04-26", "third"));
+        r.history
+            .push(history_entry("p", "api", 20_002, "2026-03-01", "second"));
+        let entries = r.history_for_service("p", "api");
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].released, "2026-04-26");
+        assert_eq!(entries[1].released, "2026-03-01");
+        assert_eq!(entries[2].released, "2026-01-01");
     }
 }

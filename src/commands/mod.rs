@@ -5,7 +5,7 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::allocator;
-use crate::error::SpoutError;
+use crate::error::{RemovedRecord, SpoutError};
 use crate::format;
 use crate::project;
 use crate::protocol::Protocol;
@@ -52,10 +52,18 @@ pub(super) fn not_registered_in_project(
             names
         })
         .unwrap_or_default();
+    let recently_removed =
+        reg.history_for_service(project, service)
+            .first()
+            .map(|h| RemovedRecord {
+                released: h.released.clone(),
+                reason: h.reason.clone(),
+            });
     SpoutError::ServiceNotRegisteredInProject {
         project: project.to_owned(),
         service: service.to_owned(),
         available,
+        recently_removed,
     }
 }
 
@@ -237,7 +245,10 @@ mod tests {
         let (_dir, path) = temp_registry();
         let err = get(&path, "postgres", None).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("no services registered"), "got: {msg}");
+        assert!(
+            msg.contains("no services currently registered"),
+            "got: {msg}"
+        );
         assert!(msg.contains("spout alloc postgres"), "got: {msg}");
     }
 
@@ -255,6 +266,104 @@ mod tests {
         assert!(msg.contains("postgres"), "missing real name in: {msg}");
         assert!(msg.contains("redis"), "missing redis in: {msg}");
         assert!(msg.contains("spout env"), "missing env hint in: {msg}");
+    }
+
+    #[test]
+    fn get_failure_includes_recently_removed_when_history_exists() {
+        let (_dir, path) = temp_registry();
+        alloc(&path, "postgres", Protocol::default()).unwrap();
+        alloc(&path, "api", Protocol::default()).unwrap();
+        rm_current(&path, "api").unwrap();
+        let err = get(&path, "api", None).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("recently removed: api"),
+            "missing removed line in: {msg}"
+        );
+        assert!(msg.contains("user requested"), "missing reason in: {msg}");
+        assert!(
+            msg.contains("available: postgres"),
+            "missing available list in: {msg}"
+        );
+    }
+
+    #[test]
+    fn get_failure_picks_most_recent_when_multiple_removals() {
+        let (_dir, path) = temp_registry();
+        let proj = project::current_project().unwrap();
+        registry::with_lock(&path, |r| {
+            r.history.push(crate::registry::HistoryEntry {
+                project: proj.clone(),
+                service: "api".into(),
+                port: 20_000,
+                allocated: "2025-12-01".into(),
+                released: "2026-01-01".into(),
+                reason: "old".into(),
+                protocol: Protocol::default(),
+            });
+            r.history.push(crate::registry::HistoryEntry {
+                project: proj.clone(),
+                service: "api".into(),
+                port: 20_001,
+                allocated: "2026-04-01".into(),
+                released: "2026-04-26".into(),
+                reason: "newer".into(),
+                protocol: Protocol::default(),
+            });
+            Ok(())
+        })
+        .unwrap();
+        let err = get(&path, "api", None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("2026-04-26"), "expected newest date in: {msg}");
+        assert!(msg.contains("\"newer\""), "expected newer reason in: {msg}");
+        assert!(!msg.contains("2026-01-01"), "older date leaked into: {msg}");
+        assert!(!msg.contains("\"old\""), "older reason leaked into: {msg}");
+    }
+
+    #[test]
+    fn get_failure_ignores_history_from_other_projects() {
+        let (_dir, path) = temp_registry();
+        registry::with_lock(&path, |r| {
+            r.history.push(crate::registry::HistoryEntry {
+                project: "some-other-project".into(),
+                service: "api".into(),
+                port: 20_000,
+                allocated: "2026-04-01".into(),
+                released: "2026-04-26".into(),
+                reason: "user requested".into(),
+                protocol: Protocol::default(),
+            });
+            Ok(())
+        })
+        .unwrap();
+        let err = get(&path, "api", None).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("recently removed"),
+            "cross-project history leaked into: {msg}"
+        );
+    }
+
+    #[test]
+    fn get_failure_in_empty_project_with_history_uses_alloc_fresh_hint() {
+        let (_dir, path) = temp_registry();
+        alloc(&path, "api", Protocol::default()).unwrap();
+        rm_current(&path, "api").unwrap();
+        let err = get(&path, "api", None).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("no services currently registered"),
+            "missing empty marker in: {msg}"
+        );
+        assert!(
+            msg.contains("recently removed: api"),
+            "missing removed line in: {msg}"
+        );
+        assert!(
+            msg.contains("`spout alloc api` to register fresh"),
+            "missing fresh hint in: {msg}"
+        );
     }
 
     #[test]
