@@ -69,6 +69,16 @@ spout ls
   Use --project to filter to the current project only.
   Every row shows the protocol; plain-text output formats the port as
   "20000/tcp" or "20000/udp". READ ONLY.
+  `ls` is for relaying state to a human. For programmatic reads prefer
+  `spout get <service>` (single port) or `spout env` (all ports for the
+  project as KEY=VALUE) — both are stable parsing surfaces; `ls` is not.
+
+spout env [--project <NAME>]
+  Prints one `KEY=VALUE` line per registered service for the current
+  project, or NAME with --project. Keys are SERVICE_PORT (uppercased
+  with hyphens turned to underscores). Safe to source from a shell or
+  consume as the agent-friendly survey of "every port in this project".
+  READ ONLY.
 
 spout check <port> [--udp]
   Exit code 0 if the port is free, 1 if taken. Default TCP; pass --udp to
