@@ -361,7 +361,7 @@ Platform: `flock` syscall on Linux/macOS. Windows is not a target for v1.
 
 ## 10. Error Handling
 
-- **Service not registered (for `get`/`rm`):** Exit code 1. The stderr message names the project and lists its actual service names so a wrong-name guess (e.g. asking for `tyfi-postgres` when the registered name is `postgres`) self-corrects rather than triggering a duplicate `spout alloc`. Empty-project failures suggest `spout alloc <service>` instead.
+- **Service not registered (for `get`/`rm`):** Exit code 1. The stderr message names the project and lists its actual service names so a wrong-name guess (e.g. asking for `tyfi-postgres` when the registered name is `postgres`) self-corrects rather than triggering a duplicate `spout alloc`. Empty-project failures suggest `spout alloc <service>` instead. If the requested service has a removal record in this project's history, the message includes a `recently removed: <name> (<date>, "<reason>")` line so an agent can pause before resurrecting something the user just deleted.
 - **Corrupt registry:** Exit code 3, clear message to stderr describing the parse failure. Recovery: delete the registry file to reset, or restore from backup.
 - **Unknown registry version:** Exit code 4, message names the version found and the version supported.
 - **No free port found:** Exit code 2, message states the service, the range searched, and suggests `spout ls` to review allocations.
