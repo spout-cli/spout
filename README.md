@@ -451,6 +451,14 @@ This is a permanent design commitment, not a "not yet."
 
 ---
 
+## How spout was built
+
+Spout is AI-assisted. A human led design and reviewed every change — no extended sessions ran unsupervised. Claude Code did the implementation; the project's planning and learning docs kept context across stages. We disagreed a lot before we agreed — and now we both reach for it.
+
+Each design stage has a planning doc written before coding and a learning doc written after — see [`docs/planning/`](docs/planning/). The [`CLAUDE.md`](CLAUDE.md) at the repo root is deliberately slim: guardrails only (TDD, file-size limits, process rules). Project spec and context live in [`docs/`](docs/) and this README — the agent reads the same docs the human does. The repo also ships a downstream-project primer in [`templates/CLAUDE.md`](templates/CLAUDE.md) and an [`llms.txt`](llms.txt).
+
+---
+
 ## Requirements
 
 - macOS or Linux
