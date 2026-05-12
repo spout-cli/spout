@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-12
+
 ### Added
 - `spout get` / `spout rm` failures now include a `recently removed: <name> (<date>, "<reason>")` line when the requested service has a removal record in this project's history. Closes the loop on the "user just removed it" failure mode: an agent that runs `spout get api` shortly after the user removed `api` sees the date and reason, and can pause before re-allocating rather than silently resurrecting what was just deleted. Most-recent removal only — older entries stay reachable via `spout whois <port> --history`. Cross-project history is invisible (service names are project-scoped). New `Registry::history_for_service` method mirrors the existing `history_for_port`. Exit code 1 unchanged.
 - `spout get <service>` and `spout rm <service>` now list the project's actual service names on failure instead of a bare "service not registered". When an agent guesses a wrong name (e.g. `acme-postgres` in a project whose service is registered as just `postgres`), the stderr message surfaces the real name plus a `spout env` pointer — so it self-corrects rather than allocating a duplicate. Exit code 1 unchanged. Empty-project failures suggest `spout alloc <service>`. New `SpoutError::ServiceNotRegisteredInProject` variant carries the context.
@@ -47,5 +49,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - `services::env_var_name` helper and its tests. Was only consumed by the (now-replaced) TUI ENV VAR column; callers who need the env-var name can derive it trivially (uppercase, hyphens → underscores, append `_PORT`).
 
-[Unreleased]: https://github.com/spout-cli/spout/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/spout-cli/spout/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/spout-cli/spout/releases/tag/v0.2.0
 [0.1.0]: https://github.com/spout-cli/spout/releases/tag/v0.1.0
