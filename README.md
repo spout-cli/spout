@@ -1,6 +1,6 @@
 # spout
 
-> Stops Claude Code brute-forcing your ports.
+> Stops Claude Code brute-forcing your ports. Mostly.
 > No daemon. No config. No surprises.
 
 ---
