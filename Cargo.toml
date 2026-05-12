@@ -9,6 +9,15 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 keywords = ["port", "docker", "registry", "cli", "development"]
 categories = ["command-line-utilities", "development-tools"]
+include = [
+    "src/**/*.rs",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE-*",
+    "/CHANGELOG.md",
+    "docs/images/*.png",
+]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
