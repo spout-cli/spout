@@ -24,4 +24,3 @@ Closes #
 - [ ] No `unwrap()` or `expect()` outside tests
 - [ ] stdout/stderr contract respected
 - [ ] CHANGELOG updated under `[Unreleased]`
-- [ ] If this completes a development stage, `docs/planning/NN-learning.md` is written

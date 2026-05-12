@@ -10,3 +10,8 @@ Thumbs.db
 # Claude Code local state — never commit
 .claude/
 CLAUDE.local.md
+
+# Internal docs — kept local, not tracked in the public repo
+/docs/**
+!/docs/images/
+!/docs/images/**

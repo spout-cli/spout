@@ -18,10 +18,6 @@
 
 ## Process
 
-- A **stage** is a coherent multi-commit design effort — monorepo support, UDP, prune. For each stage: read `docs/planning/NN-planning.md` before starting, write `docs/planning/NN-learning.md` after completing.
+- A **stage** is a coherent multi-commit design effort — monorepo support, UDP, prune. Write a planning doc before starting and a learning doc after completing.
 - Standalone commits — small features, CI/infra, cleanup, docs — don't need the planning bookends. Use conventional commits and land them directly.
 - One logical change per commit. Conventional commit messages.
-
-See [CODING_GUIDELINES.md](docs/CODING_GUIDELINES.md) for detail and rationale.
-See [docs/planning/](docs/planning/) for stage plans and learnings.
-See [spout-prd.md](docs/spout-prd.md) for the product spec.

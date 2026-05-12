@@ -1,6 +1,6 @@
 # spout
 
-> Stops Claude Code brute-forcing your ports. Mostly.
+> Stops Claude Code brute-forcing your ports (mostly).
 > No daemon. No config. No surprises.
 
 ---
@@ -9,7 +9,7 @@
 
 ```bash
 # Install
-brew install spout-cli/spout/spout
+cargo install spout
 
 # In any project directory
 cd your-project
@@ -43,22 +43,14 @@ Think of it as a filing cabinet for port numbers. One drawer per project, one sl
 
 ## Installation
 
-### Homebrew (macOS and Linux)
-
-```bash
-brew install spout-cli/spout/spout
-```
-
-### curl installer
-
-```bash
-curl -sSfL https://spout.dev/install.sh | sh
-```
-
-### From source
-
 ```bash
 cargo install spout
+```
+
+Or build the latest from `main`:
+
+```bash
+cargo install --git https://github.com/spout-cli/spout
 ```
 
 ### Shell completions
@@ -427,7 +419,7 @@ spout is designed to be used by agents as much as by humans. Three things make t
 
 Drop [this CLAUDE.md template](templates/CLAUDE.md) into your project to teach Claude Code (and others) how to use spout.
 
-An [`llms.txt`](https://spout.dev/llms.txt) is served for ambient model grounding.
+An [`llms.txt`](llms.txt) is included in the repo root for ambient model grounding.
 
 ---
 
@@ -455,7 +447,7 @@ This is a permanent design commitment, not a "not yet."
 
 Spout is AI-assisted. A human led design and reviewed every change — no extended sessions ran unsupervised. Claude Code did the implementation; the project's planning and learning docs kept context across stages. We disagreed a lot before we agreed — and now we both reach for it.
 
-Each design stage has a planning doc written before coding and a learning doc written after — see [`docs/planning/`](docs/planning/). The [`CLAUDE.md`](CLAUDE.md) at the repo root is deliberately slim: guardrails only (TDD, file-size limits, process rules). Project spec and context live in [`docs/`](docs/) and this README — the agent reads the same docs the human does. The repo also ships a downstream-project primer in [`templates/CLAUDE.md`](templates/CLAUDE.md) and an [`llms.txt`](llms.txt).
+The [`CLAUDE.md`](CLAUDE.md) at the repo root holds the project's guardrails — TDD, file-size limits, process rules. The repo also ships a downstream-project primer in [`templates/CLAUDE.md`](templates/CLAUDE.md) and an [`llms.txt`](llms.txt) for agents discovering the project.
 
 ---
 
@@ -500,7 +492,7 @@ All log output goes to stderr — stdout stays clean for scripting.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODING_GUIDELINES.md](docs/CODING_GUIDELINES.md). TL;DR: TDD, files under 400 lines, functions under 40 lines, four-argument max, no `unwrap()` in production paths.
+See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: TDD, files under 400 lines, functions under 40 lines, four-argument max, no `unwrap()` in production paths.
 
 ---
 

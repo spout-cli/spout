@@ -168,9 +168,8 @@ Log output goes exclusively to stderr.
 
 ## Installation
 
-  brew install spout-cli/spout/spout
-  curl -sSfL https://spout.dev/install.sh | sh
   cargo install spout
+  cargo install --git https://github.com/spout-cli/spout
 
 ## Not-spout
 
