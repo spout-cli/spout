@@ -1,7 +1,7 @@
 //! Registry schema — data types and their methods. On-disk I/O in `io.rs`.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -128,22 +128,17 @@ impl Registry {
         let released = today_iso();
         let reason = format!("reprojected to {to}");
         for (service, entry) in services {
-            let port = entry.port;
-            let allocated = entry.allocated.clone();
-            let protocol = entry.protocol;
+            self.history.push(history_of(
+                from,
+                &service,
+                entry.clone(),
+                &reason,
+                &released,
+            ));
             self.projects
                 .entry(to.to_owned())
                 .or_default()
-                .insert(service.clone(), entry);
-            self.history.push(HistoryEntry {
-                project: from.to_owned(),
-                service,
-                port,
-                allocated,
-                released: released.clone(),
-                reason: reason.clone(),
-                protocol,
-            });
+                .insert(service, entry);
         }
         Ok(count)
     }
@@ -193,18 +188,15 @@ impl Registry {
         cwd: &Path,
     ) -> Vec<(String, &'a Entry)> {
         let mut orphans = Vec::new();
-        let mut path: PathBuf = cwd.to_path_buf();
-        loop {
-            let path_str = path.display().to_string();
-            if path_str != current_project {
-                if let Some(services) = self.projects.get(&path_str) {
-                    if let Some(entry) = services.get(service) {
-                        orphans.push((path_str, entry));
-                    }
-                }
+        for ancestor in cwd.ancestors() {
+            let path_str = ancestor.display().to_string();
+            if path_str == current_project {
+                continue;
             }
-            if !path.pop() {
-                break;
+            if let Some(services) = self.projects.get(&path_str) {
+                if let Some(entry) = services.get(service) {
+                    orphans.push((path_str, entry));
+                }
             }
         }
         orphans

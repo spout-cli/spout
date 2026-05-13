@@ -40,14 +40,7 @@ pub fn alloc(
                 return Err(SpoutError::AllocOrphanMatch {
                     project: project.to_owned(),
                     service: service.to_owned(),
-                    orphans: orphans
-                        .into_iter()
-                        .map(|(p, e)| OrphanRecord {
-                            project: p,
-                            port: e.port,
-                            protocol: e.protocol,
-                        })
-                        .collect(),
+                    orphans: orphans.into_iter().map(OrphanRecord::from).collect(),
                 });
             }
         }

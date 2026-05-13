@@ -65,11 +65,7 @@ pub(super) fn not_registered_in_project(
     let orphans = reg
         .orphans_for_service(project, service, &cwd)
         .into_iter()
-        .map(|(proj, entry)| OrphanRecord {
-            project: proj,
-            port: entry.port,
-            protocol: entry.protocol,
-        })
+        .map(OrphanRecord::from)
         .collect();
     SpoutError::ServiceNotRegisteredInProject {
         project: project.to_owned(),

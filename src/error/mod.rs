@@ -5,6 +5,7 @@
 use thiserror::Error;
 
 use crate::protocol::Protocol;
+use crate::registry::Entry;
 
 #[derive(Debug, Error)]
 #[cfg_attr(not(test), allow(dead_code))]
@@ -81,13 +82,25 @@ pub struct RemovedRecord {
 }
 
 /// One live entry found under a sibling project identity during the
-/// orphan scan. Mirrors `RemovedRecord` in keeping `error.rs` free of
-/// registry-type dependencies.
+/// orphan scan. Carries only the fields the error message needs;
+/// `From<(String, &Entry)>` does the registry-to-error mapping for the
+/// two call sites (`commands::not_registered_in_project` and
+/// `allocator::alloc`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrphanRecord {
     pub project: String,
     pub port: u16,
     pub protocol: Protocol,
+}
+
+impl From<(String, &Entry)> for OrphanRecord {
+    fn from((project, entry): (String, &Entry)) -> Self {
+        Self {
+            project,
+            port: entry.port,
+            protocol: entry.protocol,
+        }
+    }
 }
 
 fn format_not_registered_help(
@@ -115,20 +128,27 @@ fn format_not_registered_help(
             orphan.project, orphan.port, orphan.protocol
         ));
     }
-    let hint = if let Some(first) = orphans.first() {
-        format!(
-            "  (try `spout reproject --from {} --to {project}`)",
-            first.project
-        )
-    } else {
+    let hint = reproject_hint(orphans, project).unwrap_or_else(|| {
         match (available.is_empty(), recently_removed.is_some()) {
             (true, false) => format!("  (try `spout alloc {service}`)"),
             (true, true) => format!("  (try `spout alloc {service}` to register fresh)"),
             (false, _) => "  (try `spout env` for KEY=VALUE)".to_string(),
         }
-    };
+    });
     lines.push(hint);
     lines.join("\n")
+}
+
+/// Hint line steering the user toward `spout reproject` when an orphan
+/// match has been surfaced. Shared by the get-failure formatter and the
+/// alloc-refusal formatter so the suggestion's wording stays in lockstep.
+fn reproject_hint(orphans: &[OrphanRecord], to_project: &str) -> Option<String> {
+    orphans.first().map(|o| {
+        format!(
+            "  (try `spout reproject --from {} --to {to_project}`)",
+            o.project
+        )
+    })
 }
 
 impl SpoutError {
@@ -176,11 +196,8 @@ fn format_alloc_orphan_match(project: &str, service: &str, orphans: &[OrphanReco
             lines.push(format!("    {} → {}/{}", o.project, o.port, o.protocol));
         }
     }
-    if let Some(first) = orphans.first() {
-        lines.push(format!(
-            "  (try `spout reproject --from {} --to {project}`)",
-            first.project
-        ));
+    if let Some(hint) = reproject_hint(orphans, project) {
+        lines.push(hint);
     }
     lines.join("\n")
 }
