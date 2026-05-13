@@ -16,7 +16,7 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::Path;
 use std::sync::OnceLock;
 
-use crate::error::SpoutError;
+use crate::error::{OrphanRecord, SpoutError};
 use crate::protocol::Protocol;
 use crate::registry::{self, Registry};
 
@@ -29,7 +29,28 @@ pub fn alloc(
     service: &str,
     protocol: Protocol,
 ) -> Result<u16, SpoutError> {
+    let cwd = std::env::current_dir().unwrap_or_default();
     registry::with_lock(registry_path, |r| {
+        // Idempotent path skips the orphan check — re-allocating an
+        // already-registered service is a safe agent retry and must not
+        // be blocked by sibling-identity entries.
+        if r.get(project, service).is_none() {
+            let orphans = r.orphans_for_service(project, service, &cwd);
+            if !orphans.is_empty() {
+                return Err(SpoutError::AllocOrphanMatch {
+                    project: project.to_owned(),
+                    service: service.to_owned(),
+                    orphans: orphans
+                        .into_iter()
+                        .map(|(p, e)| OrphanRecord {
+                            project: p,
+                            port: e.port,
+                            protocol: e.protocol,
+                        })
+                        .collect(),
+                });
+            }
+        }
         alloc_within_lock(r, project, service, protocol).map(|(port, _)| port)
     })
 }
@@ -263,6 +284,57 @@ mod tests {
     fn probe_bound_ports_empty_registry_returns_empty_set() {
         let reg = Registry::default();
         assert!(probe_bound_ports(&reg).is_empty());
+    }
+
+    #[test]
+    fn alloc_refuses_when_orphan_exists_for_same_service() {
+        let (_dir, path) = temp_registry();
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_str = cwd.display().to_string();
+        // Register postgres under the cwd identity (sibling/orphan).
+        registry::with_lock(&path, |r| {
+            r.set(&cwd_str, "postgres", 20_000, Protocol::Tcp);
+            Ok(())
+        })
+        .unwrap();
+        // Allocating postgres under a different (git-style) project must refuse.
+        let result = alloc(&path, "github.com/acme/myapp", "postgres", Protocol::Tcp);
+        match result {
+            Err(SpoutError::AllocOrphanMatch {
+                service, orphans, ..
+            }) => {
+                assert_eq!(service, "postgres");
+                assert_eq!(orphans.len(), 1);
+                assert_eq!(orphans[0].project, cwd_str);
+                assert_eq!(orphans[0].port, 20_000);
+            }
+            other => panic!("expected AllocOrphanMatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn alloc_idempotent_path_ignores_orphan_check() {
+        let (_dir, path) = temp_registry();
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_str = cwd.display().to_string();
+        // Service already registered in target project AND exists as orphan.
+        registry::with_lock(&path, |r| {
+            r.set(&cwd_str, "postgres", 20_000, Protocol::Tcp);
+            r.set("github.com/acme/myapp", "postgres", 30_000, Protocol::Tcp);
+            Ok(())
+        })
+        .unwrap();
+        // Idempotent re-allocation under target returns existing port, not refusal.
+        let port = alloc(&path, "github.com/acme/myapp", "postgres", Protocol::Tcp).unwrap();
+        assert_eq!(port, 30_000);
+    }
+
+    #[test]
+    fn alloc_does_not_refuse_when_no_orphan_exists() {
+        let (_dir, path) = temp_registry();
+        // Empty registry. No orphans possible. Fresh allocation succeeds.
+        let port = alloc(&path, "github.com/acme/myapp", "postgres", Protocol::Tcp).unwrap();
+        assert!((BASE_PORT..=MAX_PORT).contains(&port));
     }
 
     #[test]
