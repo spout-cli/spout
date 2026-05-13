@@ -117,16 +117,18 @@ The distinction exists so agents can probe the registry without accidental side 
 
 ## Exit codes
 
-0  Success
-1  Service not registered
-2  No free port found
-3  Registry corrupt or unreadable
-4  Registry version unsupported
-5  Port already claimed by another project
-6  Port already in use by OS
-7  I/O error (e.g., stdout or stdin closed mid-command)
-8  Compose file missing or malformed (for `spout alloc`)
-9  Usage error (invalid flag combination)
+0   Success
+1   Service not registered
+2   No free port found
+3   Registry corrupt or unreadable
+4   Registry version unsupported
+5   Port already claimed by another project
+6   Port already in use by OS
+7   I/O error (e.g., stdout or stdin closed mid-command)
+8   Compose file missing or malformed (for `spout alloc`)
+9   Usage error (invalid flag combination)
+10  `alloc` refused — service exists under sibling project identity (run `spout reproject`)
+11  `reproject` refused — services exist in both source and target
 
 ## Integration with varlock
 

@@ -415,6 +415,7 @@ spout is designed to be used by agents as much as by humans. Three things make t
 - Exit codes are stable and documented
 - Failed `get` / `rm` lookups list the project's actual service names on stderr — so an agent that guesses a wrong name (e.g. `acme-postgres` when the service is registered as `postgres`) self-corrects rather than allocating a duplicate
 - If the requested service was recently removed, the failure message includes a `recently removed: <name> (<date>, "<reason>")` line — agents see the date and pause before resurrecting what the user just deleted
+- If the requested service is registered under a *different* project identity that maps to the same directory tree (e.g. before-vs-after `git init`), the failure message surfaces it as a `registered under different identity` line and suggests `spout reproject`. `spout alloc` of the same name refuses with exit `10` rather than silently fragmenting the registry across identities
 - `list` and `free` work as aliases for `ls` and `rm` — common verb guesses don't hit "unrecognized subcommand"
 
 Drop [this CLAUDE.md template](templates/CLAUDE.md) into your project to teach Claude Code (and others) how to use spout.
@@ -474,6 +475,8 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | 7    | I/O error (e.g., stdout or stdin closed mid-command) |
 | 8    | Compose file missing or malformed (for `spout alloc`) |
 | 9    | Usage error (invalid flag combination) |
+| 10   | `alloc` refused — service exists under sibling project identity (run `spout reproject`) |
+| 11   | `reproject` refused — services exist in both source and target |
 
 ---
 

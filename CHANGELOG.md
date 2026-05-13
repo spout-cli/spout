@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Project-identity migration support. When a project's identity changes (most commonly: `git init` after services were already registered under the cwd-path identity), the old entries become orphans under the old identity. Three coordinated surfaces handle the case: `spout get` failure messages now include a `registered under different identity:` line pointing at any orphans and suggesting `spout reproject`; `spout alloc` refuses to create a new service whose name already exists under a sibling identity (new exit code 10, `AllocOrphanMatch`) — catches the `spout get foo 2>/dev/null || spout alloc foo` agent pattern by making it fail loudly instead of fragmenting the registry; new `spout reproject --from <identity> --to <identity>` moves every service between identities in a single registry transaction, refusing on conflict with exit code 11 (`ReprojectConflict`).
+
 ## [0.2.0] - 2026-05-12
 
 ### Added
