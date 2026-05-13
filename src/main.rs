@@ -133,6 +133,10 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
                 println!("{out}");
             }
         }
+        Commands::Reproject { from, to } => {
+            let out = commands::reproject(&reg_path, &from, &to)?;
+            println!("{out}");
+        }
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "spout", &mut std::io::stdout());

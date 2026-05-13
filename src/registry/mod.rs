@@ -103,6 +103,51 @@ impl Registry {
         count
     }
 
+    /// Move every service from project identity `from` to identity `to`.
+    /// Returns the count moved on success, or `Err(conflicts)` listing the
+    /// services that exist under both — caller resolves before retry.
+    /// Each moved entry records a `reprojected to <to>` history line so
+    /// `spout whois <port> --history` shows the lineage. The `from` project
+    /// entry is removed entirely when empty.
+    pub fn reproject(&mut self, from: &str, to: &str) -> Result<usize, Vec<String>> {
+        if let (Some(src), Some(tgt)) = (self.projects.get(from), self.projects.get(to)) {
+            let mut conflicts: Vec<String> = src
+                .keys()
+                .filter(|k| tgt.contains_key(*k))
+                .cloned()
+                .collect();
+            if !conflicts.is_empty() {
+                conflicts.sort();
+                return Err(conflicts);
+            }
+        }
+        let Some(services) = self.projects.remove(from) else {
+            return Ok(0);
+        };
+        let count = services.len();
+        let released = today_iso();
+        let reason = format!("reprojected to {to}");
+        for (service, entry) in services {
+            let port = entry.port;
+            let allocated = entry.allocated.clone();
+            let protocol = entry.protocol;
+            self.projects
+                .entry(to.to_owned())
+                .or_default()
+                .insert(service.clone(), entry);
+            self.history.push(HistoryEntry {
+                project: from.to_owned(),
+                service,
+                port,
+                allocated,
+                released: released.clone(),
+                reason: reason.clone(),
+                protocol,
+            });
+        }
+        Ok(count)
+    }
+
     /// Live-registry ownership of (port, protocol). TCP and UDP at the same
     /// number are independent — one does not block the other.
     pub fn is_port_claimed(&self, port: u16, protocol: Protocol) -> Option<(String, String)> {

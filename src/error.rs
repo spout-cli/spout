@@ -55,6 +55,13 @@ pub enum SpoutError {
 
     #[error("{0}")]
     Usage(String),
+
+    #[error("{}", format_reproject_conflict(.from, .to, .services))]
+    ReprojectConflict {
+        from: String,
+        to: String,
+        services: Vec<String>,
+    },
 }
 
 /// Snapshot of a service's most recent removal record. Independent of
@@ -131,8 +138,16 @@ impl SpoutError {
             Self::ComposeInvalid(_) => 8,
             Self::ComposeNotFound(_) => 8,
             Self::Usage(_) => 9,
+            Self::ReprojectConflict { .. } => 11,
         }
     }
+}
+
+fn format_reproject_conflict(from: &str, to: &str, services: &[String]) -> String {
+    let mut lines = vec![format!("cannot reproject from '{from}' to '{to}'")];
+    lines.push(format!("  services exist in both: {}", services.join(", ")));
+    lines.push("  resolve by removing one side first, then retry".to_string());
+    lines.join("\n")
 }
 
 #[cfg(test)]
@@ -208,6 +223,19 @@ mod tests {
     fn usage_exits_nine() {
         let err = SpoutError::Usage("specify a service".into());
         assert_eq!(err.exit_code(), 9);
+    }
+
+    #[test]
+    fn reproject_conflict_exits_eleven() {
+        let err = SpoutError::ReprojectConflict {
+            from: "a".into(),
+            to: "b".into(),
+            services: vec!["postgres".into()],
+        };
+        assert_eq!(err.exit_code(), 11);
+        let msg = err.to_string();
+        assert!(msg.contains("cannot reproject from 'a' to 'b'"));
+        assert!(msg.contains("services exist in both: postgres"));
     }
 
     #[test]

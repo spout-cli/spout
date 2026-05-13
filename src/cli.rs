@@ -121,6 +121,16 @@ pub enum Commands {
         older_than: u64,
     },
 
+    /// Move every service from one project identity to another [MUTATES REGISTRY]
+    Reproject {
+        /// Source project identity
+        #[arg(long, value_name = "IDENTITY")]
+        from: String,
+        /// Destination project identity
+        #[arg(long, value_name = "IDENTITY")]
+        to: String,
+    },
+
     /// Generate a shell completion script for the given shell [READ ONLY]
     Completions { shell: Shell },
 }
@@ -345,6 +355,33 @@ mod tests {
             Commands::Completions { shell } => assert_eq!(shell, Shell::Bash),
             other => panic!("expected Completions, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_reproject_with_from_and_to() {
+        let cli = Cli::try_parse_from([
+            "spout",
+            "reproject",
+            "--from",
+            "/home/user/work/myapp",
+            "--to",
+            "github.com/acme/myapp",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Reproject { from, to } => {
+                assert_eq!(from, "/home/user/work/myapp");
+                assert_eq!(to, "github.com/acme/myapp");
+            }
+            other => panic!("expected Reproject, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reproject_requires_both_from_and_to() {
+        assert!(Cli::try_parse_from(["spout", "reproject", "--from", "a"]).is_err());
+        assert!(Cli::try_parse_from(["spout", "reproject", "--to", "b"]).is_err());
+        assert!(Cli::try_parse_from(["spout", "reproject"]).is_err());
     }
 
     #[test]

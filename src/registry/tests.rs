@@ -270,3 +270,69 @@ fn orphans_for_service_excludes_current_project_even_if_path_based() {
     );
     assert!(orphans.is_empty());
 }
+
+#[test]
+fn reproject_returns_zero_when_source_empty() {
+    let mut r = Registry::default();
+    assert_eq!(r.reproject("missing", "target"), Ok(0));
+}
+
+#[test]
+fn reproject_moves_all_services_to_empty_target() {
+    let mut r = Registry::default();
+    r.set("source", "postgres", 20_000, Protocol::default());
+    r.set("source", "redis", 20_001, Protocol::default());
+    assert_eq!(r.reproject("source", "target"), Ok(2));
+    assert_eq!(r.get("target", "postgres"), Some(20_000));
+    assert_eq!(r.get("target", "redis"), Some(20_001));
+    assert!(!r.projects.contains_key("source"));
+}
+
+#[test]
+fn reproject_refuses_on_conflict_listing_offenders_sorted() {
+    let mut r = Registry::default();
+    r.set("source", "postgres", 20_000, Protocol::default());
+    r.set("source", "redis", 20_001, Protocol::default());
+    r.set("target", "redis", 30_000, Protocol::default());
+    r.set("target", "postgres", 30_001, Protocol::default());
+    match r.reproject("source", "target") {
+        Err(conflicts) => assert_eq!(conflicts, vec!["postgres".to_string(), "redis".to_string()]),
+        Ok(_) => panic!("expected conflict"),
+    }
+    // No partial move
+    assert_eq!(r.get("source", "postgres"), Some(20_000));
+    assert_eq!(r.get("target", "redis"), Some(30_000));
+}
+
+#[test]
+fn reproject_succeeds_when_target_has_different_services() {
+    let mut r = Registry::default();
+    r.set("source", "postgres", 20_000, Protocol::default());
+    r.set("target", "redis", 30_000, Protocol::default());
+    assert_eq!(r.reproject("source", "target"), Ok(1));
+    assert_eq!(r.get("target", "postgres"), Some(20_000));
+    assert_eq!(r.get("target", "redis"), Some(30_000));
+}
+
+#[test]
+fn reproject_records_history_with_reprojected_reason() {
+    let mut r = Registry::default();
+    r.set("source", "postgres", 20_000, Protocol::default());
+    r.reproject("source", "target").unwrap();
+    assert_eq!(r.history.len(), 1);
+    let h = &r.history[0];
+    assert_eq!(h.project, "source");
+    assert_eq!(h.service, "postgres");
+    assert_eq!(h.port, 20_000);
+    assert_eq!(h.reason, "reprojected to target");
+}
+
+#[test]
+fn reproject_preserves_protocol() {
+    let mut r = Registry::default();
+    r.set("source", "dns", 5353, Protocol::Udp);
+    r.reproject("source", "target").unwrap();
+    let entry = r.projects.get("target").unwrap().get("dns").unwrap();
+    assert_eq!(entry.protocol, Protocol::Udp);
+    assert_eq!(entry.port, 5353);
+}

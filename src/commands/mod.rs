@@ -14,9 +14,11 @@ use crate::services::env_var_name;
 
 mod alloc;
 mod prune;
+mod reproject;
 mod rm;
 pub use alloc::{alloc, compose as alloc_compose};
 pub use prune::run as prune;
+pub use reproject::run as reproject;
 pub use rm::{run as rm, RmOptions, RmTarget};
 
 pub fn get(
