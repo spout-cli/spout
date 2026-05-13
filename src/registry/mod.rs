@@ -1,6 +1,7 @@
 //! Registry schema — data types and their methods. On-disk I/O in `io.rs`.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -132,6 +133,37 @@ impl Registry {
         matches.sort_by(|a, b| b.released.cmp(&a.released));
         matches
     }
+
+    /// Find live entries for `service` under project identities OTHER than
+    /// `current_project` whose identity is an absolute path that equals
+    /// the current directory or any of its ancestors. Used to detect
+    /// orphans when a project's identity changes (e.g., `git init` after
+    /// services were registered under the cwd path). Returns
+    /// `(project_identity, &entry)` pairs in cwd-first, ancestor-walk
+    /// order.
+    pub fn orphans_for_service<'a>(
+        &'a self,
+        current_project: &str,
+        service: &str,
+        cwd: &Path,
+    ) -> Vec<(String, &'a Entry)> {
+        let mut orphans = Vec::new();
+        let mut path: PathBuf = cwd.to_path_buf();
+        loop {
+            let path_str = path.display().to_string();
+            if path_str != current_project {
+                if let Some(services) = self.projects.get(&path_str) {
+                    if let Some(entry) = services.get(service) {
+                        orphans.push((path_str, entry));
+                    }
+                }
+            }
+            if !path.pop() {
+                break;
+            }
+        }
+        orphans
+    }
 }
 
 fn history_of(
@@ -153,156 +185,4 @@ fn history_of(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn registry_set_get_remove_roundtrip() {
-        let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456, Protocol::default());
-        assert_eq!(r.get("myproj", "postgres"), Some(19456));
-
-        let removed = r.remove("myproj", "postgres", "test");
-        assert_eq!(removed, Some(19456));
-        assert_eq!(r.get("myproj", "postgres"), None);
-        assert_eq!(r.history.len(), 1);
-        assert_eq!(r.history[0].port, 19456);
-        assert_eq!(r.history[0].reason, "test");
-    }
-
-    #[test]
-    fn remove_carries_allocated_date_into_history() {
-        let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456, Protocol::default());
-        let live_allocated = r
-            .projects
-            .get("myproj")
-            .unwrap()
-            .get("postgres")
-            .unwrap()
-            .allocated
-            .clone();
-        r.remove("myproj", "postgres", "test");
-        assert_eq!(r.history[0].allocated, live_allocated);
-    }
-
-    #[test]
-    fn remove_empties_project_entry() {
-        let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456, Protocol::default());
-        r.remove("myproj", "postgres", "test");
-        assert!(!r.projects.contains_key("myproj"));
-    }
-
-    #[test]
-    fn is_port_claimed_finds_existing() {
-        let mut r = Registry::default();
-        r.set("myproj", "postgres", 19456, Protocol::default());
-        let owner = r.is_port_claimed(19456, Protocol::Tcp).unwrap();
-        assert_eq!(owner, ("myproj".to_owned(), "postgres".to_owned()));
-    }
-
-    #[test]
-    fn is_port_claimed_returns_none_for_free() {
-        let r = Registry::default();
-        assert!(r.is_port_claimed(19456, Protocol::Tcp).is_none());
-    }
-
-    #[test]
-    fn history_for_port_sorted_most_recent_first() {
-        let mut r = Registry::default();
-        r.history.push(HistoryEntry {
-            project: "a".into(),
-            service: "s".into(),
-            port: 19456,
-            allocated: "2025-09-01".into(),
-            released: "2026-01-01".into(),
-            reason: "x".into(),
-            protocol: Protocol::default(),
-        });
-        r.history.push(HistoryEntry {
-            project: "b".into(),
-            service: "s".into(),
-            port: 19456,
-            allocated: "2026-02-01".into(),
-            released: "2026-06-01".into(),
-            reason: "y".into(),
-            protocol: Protocol::default(),
-        });
-        let entries = r.history_for_port(19456);
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].released, "2026-06-01");
-        assert_eq!(entries[1].released, "2026-01-01");
-    }
-
-    fn history_entry(
-        project: &str,
-        service: &str,
-        port: u16,
-        released: &str,
-        reason: &str,
-    ) -> HistoryEntry {
-        HistoryEntry {
-            project: project.into(),
-            service: service.into(),
-            port,
-            allocated: "2026-01-01".into(),
-            released: released.into(),
-            reason: reason.into(),
-            protocol: Protocol::default(),
-        }
-    }
-
-    #[test]
-    fn history_for_service_returns_empty_when_never_removed() {
-        let r = Registry::default();
-        assert!(r.history_for_service("p", "postgres").is_empty());
-    }
-
-    #[test]
-    fn history_for_service_filters_by_project_and_service() {
-        let mut r = Registry::default();
-        r.history.push(history_entry(
-            "p",
-            "postgres",
-            20_000,
-            "2026-04-26",
-            "user requested",
-        ));
-        r.history.push(history_entry(
-            "p",
-            "redis",
-            20_001,
-            "2026-04-26",
-            "user requested",
-        ));
-        r.history.push(history_entry(
-            "other",
-            "postgres",
-            20_002,
-            "2026-04-26",
-            "user requested",
-        ));
-        let entries = r.history_for_service("p", "postgres");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].project, "p");
-        assert_eq!(entries[0].service, "postgres");
-        assert_eq!(entries[0].port, 20_000);
-    }
-
-    #[test]
-    fn history_for_service_sorts_most_recent_first() {
-        let mut r = Registry::default();
-        r.history
-            .push(history_entry("p", "api", 20_000, "2026-01-01", "first"));
-        r.history
-            .push(history_entry("p", "api", 20_001, "2026-04-26", "third"));
-        r.history
-            .push(history_entry("p", "api", 20_002, "2026-03-01", "second"));
-        let entries = r.history_for_service("p", "api");
-        assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0].released, "2026-04-26");
-        assert_eq!(entries[1].released, "2026-03-01");
-        assert_eq!(entries[2].released, "2026-01-01");
-    }
-}
+mod tests;

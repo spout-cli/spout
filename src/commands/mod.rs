@@ -5,7 +5,7 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::allocator;
-use crate::error::{RemovedRecord, SpoutError};
+use crate::error::{OrphanRecord, RemovedRecord, SpoutError};
 use crate::format;
 use crate::project;
 use crate::protocol::Protocol;
@@ -59,11 +59,22 @@ pub(super) fn not_registered_in_project(
                 released: h.released.clone(),
                 reason: h.reason.clone(),
             });
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let orphans = reg
+        .orphans_for_service(project, service, &cwd)
+        .into_iter()
+        .map(|(proj, entry)| OrphanRecord {
+            project: proj,
+            port: entry.port,
+            protocol: entry.protocol,
+        })
+        .collect();
     SpoutError::ServiceNotRegisteredInProject {
         project: project.to_owned(),
         service: service.to_owned(),
         available,
         recently_removed,
+        orphans,
     }
 }
 

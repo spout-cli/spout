@@ -12,12 +12,13 @@ pub enum SpoutError {
     #[error("service not registered")]
     ServiceNotRegistered,
 
-    #[error("{}", format_not_registered_help(.project, .service, .available, .recently_removed.as_ref()))]
+    #[error("{}", format_not_registered_help(.project, .service, .available, .recently_removed.as_ref(), .orphans))]
     ServiceNotRegisteredInProject {
         project: String,
         service: String,
         available: Vec<String>,
         recently_removed: Option<RemovedRecord>,
+        orphans: Vec<OrphanRecord>,
     },
 
     #[error("no free port found for {service} in range {range_start}-{range_end}")]
@@ -65,11 +66,22 @@ pub struct RemovedRecord {
     pub reason: String,
 }
 
+/// One live entry found under a sibling project identity during the
+/// orphan scan. Mirrors `RemovedRecord` in keeping `error.rs` free of
+/// registry-type dependencies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanRecord {
+    pub project: String,
+    pub port: u16,
+    pub protocol: Protocol,
+}
+
 fn format_not_registered_help(
     project: &str,
     service: &str,
     available: &[String],
     recently_removed: Option<&RemovedRecord>,
+    orphans: &[OrphanRecord],
 ) -> String {
     let mut lines = vec![format!("no service '{service}' in project '{project}'")];
     if available.is_empty() {
@@ -83,10 +95,23 @@ fn format_not_registered_help(
             r.released, r.reason
         ));
     }
-    let hint = match (available.is_empty(), recently_removed.is_some()) {
-        (true, false) => format!("  (try `spout alloc {service}`)"),
-        (true, true) => format!("  (try `spout alloc {service}` to register fresh)"),
-        (false, _) => "  (try `spout env` for KEY=VALUE)".to_string(),
+    for orphan in orphans {
+        lines.push(format!(
+            "  registered under different identity: {}/{service} → {}/{}",
+            orphan.project, orphan.port, orphan.protocol
+        ));
+    }
+    let hint = if let Some(first) = orphans.first() {
+        format!(
+            "  (try `spout reproject --from {} --to {project}`)",
+            first.project
+        )
+    } else {
+        match (available.is_empty(), recently_removed.is_some()) {
+            (true, false) => format!("  (try `spout alloc {service}`)"),
+            (true, true) => format!("  (try `spout alloc {service}` to register fresh)"),
+            (false, _) => "  (try `spout env` for KEY=VALUE)".to_string(),
+        }
     };
     lines.push(hint);
     lines.join("\n")
@@ -225,5 +250,94 @@ mod tests {
             protocol: Protocol::Udp,
         };
         assert!(in_use.to_string().contains("53/udp"), "got {in_use}");
+    }
+
+    fn not_registered(
+        recently_removed: Option<RemovedRecord>,
+        orphans: Vec<OrphanRecord>,
+    ) -> SpoutError {
+        SpoutError::ServiceNotRegisteredInProject {
+            project: "github.com/acme/myapp".into(),
+            service: "postgres".into(),
+            available: vec![],
+            recently_removed,
+            orphans,
+        }
+    }
+
+    #[test]
+    fn service_not_registered_with_no_orphans_uses_alloc_hint() {
+        let msg = not_registered(None, vec![]).to_string();
+        assert!(msg.contains("no service 'postgres' in project 'github.com/acme/myapp'"));
+        assert!(msg.contains("try `spout alloc postgres`"));
+        assert!(!msg.contains("registered under different identity"));
+    }
+
+    #[test]
+    fn service_not_registered_with_one_orphan_includes_orphan_line() {
+        let orphans = vec![OrphanRecord {
+            project: "/home/user/work/myapp".into(),
+            port: 20_000,
+            protocol: Protocol::Tcp,
+        }];
+        let msg = not_registered(None, orphans).to_string();
+        assert!(
+            msg.contains(
+                "registered under different identity: /home/user/work/myapp/postgres → 20000/tcp"
+            ),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn service_not_registered_with_orphan_suggests_reproject_and_drops_other_hints() {
+        let orphans = vec![OrphanRecord {
+            project: "/home/user/work/myapp".into(),
+            port: 20_000,
+            protocol: Protocol::Tcp,
+        }];
+        let msg = not_registered(None, orphans).to_string();
+        assert!(msg.contains(
+            "try `spout reproject --from /home/user/work/myapp --to github.com/acme/myapp`"
+        ));
+        assert!(!msg.contains("try `spout alloc"));
+        assert!(!msg.contains("try `spout env"));
+    }
+
+    #[test]
+    fn service_not_registered_with_multiple_orphans_lists_all_and_uses_first_in_hint() {
+        let orphans = vec![
+            OrphanRecord {
+                project: "/home/user/work/myapp".into(),
+                port: 20_000,
+                protocol: Protocol::Tcp,
+            },
+            OrphanRecord {
+                project: "/home/user/work".into(),
+                port: 20_001,
+                protocol: Protocol::Udp,
+            },
+        ];
+        let msg = not_registered(None, orphans).to_string();
+        assert!(msg.contains("/home/user/work/myapp/postgres → 20000/tcp"));
+        assert!(msg.contains("/home/user/work/postgres → 20001/udp"));
+        assert!(msg.contains("--from /home/user/work/myapp"));
+    }
+
+    #[test]
+    fn service_not_registered_orphan_hint_wins_over_recently_removed() {
+        let orphans = vec![OrphanRecord {
+            project: "/home/user/work/myapp".into(),
+            port: 20_000,
+            protocol: Protocol::Tcp,
+        }];
+        let recently_removed = Some(RemovedRecord {
+            released: "2026-05-13".into(),
+            reason: "user requested".into(),
+        });
+        let msg = not_registered(recently_removed, orphans).to_string();
+        assert!(msg.contains("recently removed: postgres"));
+        assert!(msg.contains("try `spout reproject"));
+        assert!(!msg.contains("alloc postgres"));
     }
 }

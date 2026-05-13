@@ -1,3 +1,9 @@
+// SpoutError carries multi-string failure context (available services,
+// removal history, orphan registrations). Boxing the variant would
+// require restructuring every construction site for a payoff that
+// matters only on hot paths spout doesn't have.
+#![allow(clippy::result_large_err)]
+
 mod allocator;
 mod cli;
 mod commands;
