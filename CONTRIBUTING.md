@@ -4,8 +4,8 @@ Thanks for your interest in spout. This project values simplicity and maintainab
 
 ## Before opening a PR
 
-1. Read [CODING_GUIDELINES.md](docs/CODING_GUIDELINES.md). All rules are enforced, not suggestions.
-2. Read [spout-prd.md](docs/spout-prd.md) to understand the product scope. Features outside the PRD are unlikely to be accepted.
+1. Read [`CLAUDE.md`](CLAUDE.md). All rules are enforced, not suggestions.
+2. Check the "What's in scope" section below to make sure your idea fits.
 3. Check existing issues for the thing you want to work on.
 
 ## Rules of engagement

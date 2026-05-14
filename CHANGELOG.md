@@ -6,12 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
-- Project-identity migration support. When a project's identity changes (most commonly: `git init` after services were already registered under the cwd-path identity), the old entries become orphans under the old identity. Three coordinated surfaces handle the case: `spout get` failure messages now include a `registered under different identity:` line pointing at any orphans and suggesting `spout reproject`; `spout alloc` refuses to create a new service whose name already exists under a sibling identity (new exit code 10, `AllocOrphanMatch`) — catches the `spout get foo 2>/dev/null || spout alloc foo` agent pattern by making it fail loudly instead of fragmenting the registry; new `spout reproject --from <identity> --to <identity>` moves every service between identities in a single registry transaction, refusing on conflict with exit code 11 (`ReprojectConflict`).
-
 ## [0.2.0] - 2026-05-12
 
 ### Added
+- Project-identity migration support. When a project's identity changes (most commonly: `git init` after services were already registered under the cwd-path identity), the old entries become orphans under the old identity. Three coordinated surfaces handle the case: `spout get` failure messages now include a `registered under different identity:` line pointing at any orphans and suggesting `spout reproject`; `spout alloc` refuses to create a new service whose name already exists under a sibling identity (new exit code 10, `AllocOrphanMatch`) — catches the `spout get foo 2>/dev/null || spout alloc foo` agent pattern by making it fail loudly instead of fragmenting the registry; new `spout reproject --from <identity> --to <identity>` moves every service between identities in a single registry transaction, refusing on conflict with exit code 11 (`ReprojectConflict`).
 - `spout get` / `spout rm` failures now include a `recently removed: <name> (<date>, "<reason>")` line when the requested service has a removal record in this project's history. Closes the loop on the "user just removed it" failure mode: an agent that runs `spout get api` shortly after the user removed `api` sees the date and reason, and can pause before re-allocating rather than silently resurrecting what was just deleted. Most-recent removal only — older entries stay reachable via `spout whois <port> --history`. Cross-project history is invisible (service names are project-scoped). New `Registry::history_for_service` method mirrors the existing `history_for_port`. Exit code 1 unchanged.
 - `spout get <service>` and `spout rm <service>` now list the project's actual service names on failure instead of a bare "service not registered". When an agent guesses a wrong name (e.g. `acme-postgres` in a project whose service is registered as just `postgres`), the stderr message surfaces the real name plus a `spout env` pointer — so it self-corrects rather than allocating a duplicate. Exit code 1 unchanged. Empty-project failures suggest `spout alloc <service>`. New `SpoutError::ServiceNotRegisteredInProject` variant carries the context.
 - `list` and `free` are now hidden clap aliases for `ls` and `rm`. Common verb guesses (`spout list`, `spout free postgres`) no longer hit "unrecognized subcommand" errors. Help still shows the canonical names.
@@ -54,4 +52,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 [Unreleased]: https://github.com/spout-cli/spout/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/spout-cli/spout/releases/tag/v0.2.0
-[0.1.0]: https://github.com/spout-cli/spout/releases/tag/v0.1.0

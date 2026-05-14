@@ -446,7 +446,7 @@ This is a permanent design commitment, not a "not yet."
 
 ## How spout was built
 
-Spout is AI-assisted. A human led design and reviewed every change — no extended sessions ran unsupervised. Claude Code did the implementation; the project's planning and learning docs kept context across stages. We disagreed a lot before we agreed — and now we both reach for it.
+Spout is AI-assisted. A human led design, owned every decision, and reviewed every commit — no extended sessions ran unsupervised. The disclosure is here because pretending otherwise is dishonest about how modern dev gets done.
 
 The [`CLAUDE.md`](CLAUDE.md) at the repo root holds the project's guardrails — TDD, file-size limits, process rules. The repo also ships a downstream-project primer in [`templates/CLAUDE.md`](templates/CLAUDE.md) and an [`llms.txt`](llms.txt) for agents discovering the project.
 
