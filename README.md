@@ -24,7 +24,7 @@ POSTGRES_PORT=$(spout get postgres) docker compose up -d
 
 Or wire it into whatever you already use — direnv, varlock, just, Make, or a one-time paste into `.env`. See [Integrations](#integrations) below.
 
-Done. Your port is yours, permanently, across every restart.
+Done. Your port is yours across every restart.
 
 ---
 
@@ -37,7 +37,7 @@ Think of it as a filing cabinet for port numbers. One drawer per project, one sl
 - **No daemon.** No background process, no service to manage.
 - **No config.** Project name is inferred from your working directory.
 - **Permanent leases.** Your ports stay yours until you explicitly release them.
-- **Agent-first.** Clear read-only vs mutating command split. Clean stdout/stderr contract. Works flawlessly with Claude Code, Cursor, Aider, and anything that speaks a shell.
+- **Agent-first.** Clear read-only vs mutating command split. Clean stdout/stderr contract. Plays nicely with Claude Code, Cursor, Aider, and anything that speaks a shell.
 
 ---
 
@@ -432,7 +432,7 @@ An [`llms.txt`](llms.txt) is included in the repo root for ambient model groundi
 
 **Hardcoded port ranges per project?** Works for one developer on one machine. Doesn't survive an agent guessing port numbers.
 
-**Just documenting conventions?** Humans don't follow docs reliably. Agents really don't.
+**Just documenting conventions?** Docs explain; CLIs enforce. spout does the second.
 
 ---
 
