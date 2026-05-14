@@ -149,6 +149,7 @@ fn ipv6_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::net::TcpListener;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -191,19 +192,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn alloc_skips_ports_bound_by_os() {
         let (_dir, path) = temp_registry();
-        // Hold BASE_PORT ourselves — alloc should skip to BASE_PORT + 1 (or later).
-        let holder = TcpListener::bind(("0.0.0.0", BASE_PORT));
-        if holder.is_err() {
-            // Port already in use by something on the test machine — test
-            // is still valid (alloc will skip it), just can't assert the
-            // exact fallback target.
-            let port = alloc(&path, "p", "s", Protocol::default()).unwrap();
-            assert_ne!(port, BASE_PORT);
+        // Skip if BASE_PORT is already in use — we can't reliably assert the
+        // skip behaviour without holding it ourselves. `#[serial]` keeps this
+        // test from racing the other `#[serial]` tests in this module, but
+        // it can't fence against unrelated processes.
+        let Ok(_holder) = TcpListener::bind(("0.0.0.0", BASE_PORT)) else {
             return;
-        }
-        let _holder = holder.unwrap();
+        };
         let port = alloc(&path, "p", "s", Protocol::default()).unwrap();
         assert_ne!(port, BASE_PORT);
         assert!(port > BASE_PORT);
