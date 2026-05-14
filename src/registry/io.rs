@@ -67,6 +67,16 @@ pub fn write(path: &Path, registry: &Registry) -> Result<(), SpoutError> {
 
     tmp.persist(path)
         .map_err(|e| SpoutError::RegistryCorrupt(format!("rename: {e}")))?;
+
+    // The registry records full project identities (git remotes, absolute
+    // CWD paths). On shared dev hosts the default 0644 umask would let
+    // every other user enumerate it; force 0600 explicitly after persist.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| SpoutError::RegistryCorrupt(format!("set permissions: {e}")))?;
+    }
     Ok(())
 }
 

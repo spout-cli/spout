@@ -59,7 +59,11 @@ pub fn compose(
 }
 
 fn load_chain(files: &[PathBuf]) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
-    let (first, rest) = files.split_first().expect("caller guarantees non-empty");
+    let Some((first, rest)) = files.split_first() else {
+        return Err(SpoutError::ComposeNotFound(
+            "no compose files to load".into(),
+        ));
+    };
     rest.iter()
         .try_fold(read_and_parse(first)?, |(services, mut warnings), file| {
             let (next, next_warnings) = read_and_parse(file)?;

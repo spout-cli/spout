@@ -29,7 +29,8 @@ pub fn alloc(
     service: &str,
     protocol: Protocol,
 ) -> Result<u16, SpoutError> {
-    let cwd = std::env::current_dir().unwrap_or_default();
+    let cwd = std::env::current_dir()
+        .map_err(|e| SpoutError::Io(format!("read current directory: {e}")))?;
     registry::with_lock(registry_path, |r| {
         // Idempotent path skips the orphan check — re-allocating an
         // already-registered service is a safe agent retry and must not
@@ -106,20 +107,20 @@ pub fn is_port_free_on_os(port: u16, protocol: Protocol) -> bool {
 }
 
 fn is_tcp_port_free(port: u16) -> bool {
-    if TcpListener::bind(("0.0.0.0", port)).is_err() {
+    if TcpListener::bind(("127.0.0.1", port)).is_err() {
         return false;
     }
-    if ipv6_available() && TcpListener::bind(("::", port)).is_err() {
+    if ipv6_available() && TcpListener::bind(("::1", port)).is_err() {
         return false;
     }
     true
 }
 
 fn is_udp_port_free(port: u16) -> bool {
-    if UdpSocket::bind(("0.0.0.0", port)).is_err() {
+    if UdpSocket::bind(("127.0.0.1", port)).is_err() {
         return false;
     }
-    if ipv6_available() && UdpSocket::bind(("::", port)).is_err() {
+    if ipv6_available() && UdpSocket::bind(("::1", port)).is_err() {
         return false;
     }
     true

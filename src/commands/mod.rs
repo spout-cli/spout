@@ -61,7 +61,13 @@ pub(super) fn not_registered_in_project(
                 released: h.released.clone(),
                 reason: h.reason.clone(),
             });
-    let cwd = std::env::current_dir().unwrap_or_default();
+    // Failed cwd read means we can't scan for orphans — degrade gracefully:
+    // log and produce the error without orphan context rather than failing the
+    // error-construction path.
+    let cwd = std::env::current_dir().unwrap_or_else(|e| {
+        tracing::warn!("could not read cwd for orphan scan: {e}");
+        std::path::PathBuf::new()
+    });
     let orphans = reg
         .orphans_for_service(project, service, &cwd)
         .into_iter()
