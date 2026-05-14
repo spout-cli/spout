@@ -61,7 +61,7 @@ export SPOUT_PROJECT="my-monorepo/web"
 | Code | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | Service not registered (for `get`) |
+| 1 | Service not registered (for `get` / `rm`) |
 | 2 | No free port found in range |
 | 3 | Registry file corrupt or unreadable |
 | 4 | Registry version unsupported |

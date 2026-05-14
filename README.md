@@ -13,7 +13,7 @@ cargo install spout
 
 # In any project directory
 cd your-project
-spout alloc postgres    # 20000 — registered, conflict-free, permanent
+spout alloc postgres    # 20000 — registered, conflict-free
 ```
 
 Use it from any shell:
@@ -32,7 +32,7 @@ Done. Your port is yours across every restart.
 
 A tiny Rust CLI that maintains a JSON registry of which local projects own which ports. When you run multiple Docker Compose projects on one machine, spout stops them fighting over 5432, 6379, 8080.
 
-Think of it as a filing cabinet for port numbers. One drawer per project, one slot per service. Write once, read forever.
+Think of it as a filing cabinet for port numbers. One drawer per project, one slot per service.
 
 - **No daemon.** No background process, no service to manage.
 - **No config.** Project name is inferred from your working directory.
@@ -94,10 +94,13 @@ spout prune                 # remove interactively (y/N/q/!)     [MUTATES]
 spout prune --yes           # bulk-remove without prompts        [MUTATES]
 spout ls                    # list all projects                 [READ ONLY]
 spout ls --project          # list only the current project     [READ ONLY]
+spout env                   # print KEY=VALUE per service       [READ ONLY]
+spout env --project NAME    # same, for named project           [READ ONLY]
 spout check <port>          # exit 0 if free, 1 if taken        [READ ONLY]
 spout check <port> --udp    # same, UDP instead of TCP          [READ ONLY]
 spout whois <port>          # which project/service owns a port [READ ONLY]
 spout whois <port> --history  # include released ports          [READ ONLY]
+spout reproject --from X --to Y  # migrate registrations between identities [MUTATES]
 ```
 
 ### Listing services
@@ -210,7 +213,7 @@ $ spout whois 5432
 5432/udp: github.com/acme/game/session    (active, allocated 2026-04-18)
 ```
 
-### Personalizing the viewer
+### Personalising the viewer
 
 You can prefix service names with an icon of your choice via `SPOUT_ICONS`:
 
@@ -296,7 +299,7 @@ Each whole-project removal records every service in `history` with `user request
 
 ### The mutation boundary
 
-`get`, `ls`, `check`, `whois`, and `completions` never touch the registry. You can call them speculatively from scripts or agents without side effects. `spout prune --dry-run` is also read-only.
+`get`, `ls`, `env`, `check`, `whois`, and `completions` never touch the registry. You can call them speculatively from scripts or agents without side effects. `spout prune --dry-run` is also read-only.
 
 `alloc`, `set`, `rm`, and `spout prune` (without `--dry-run`) mutate the registry and require a file lock. Call them intentionally.
 
@@ -326,10 +329,11 @@ When you run `spout alloc postgres`, spout:
 
 1. Acquires a file lock on `~/.spout.lock`
 2. Reads the registry
-3. Walks 20000–32767 in order
-4. Skips ports claimed by other projects or bound by the OS
-5. Registers the first free port to your current project
-6. Writes the registry atomically and releases the lock
+3. Refuses with exit 10 if `postgres` already exists under a sibling project identity (run `spout reproject` to migrate)
+4. Walks 20000–32767 in order
+5. Skips ports claimed by other projects on the same protocol, or bound by the OS (TCP and UDP at the same port are independent)
+6. Registers the first free port to your current project
+7. Writes the registry atomically and releases the lock
 
 Releasing a port (`spout rm`) appends to `history` rather than erasing it, so `spout whois <port> --history` can tell you what used to live there.
 
@@ -466,7 +470,7 @@ Windows is not supported natively. **Windows users: install and run spout inside
 | Code | Meaning                                |
 | ---- | -------------------------------------- |
 | 0    | Success                                |
-| 1    | Service not registered (for `get`)     |
+| 1    | Service not registered (for `get` / `rm`) |
 | 2    | No free port found within range        |
 | 3    | Registry file corrupt or unreadable    |
 | 4    | Registry version unsupported           |
