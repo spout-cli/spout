@@ -14,7 +14,7 @@ spout splits its commands into two disjoint sets. Agents should only call mutati
 | `spout check <port>` | **Read only.** Exit 0 if the port is free, 1 if taken. | Pre-flight checks. |
 | `spout whois <port>` | **Read only.** Reverse lookup — which project/service claims a port. | Debugging "why is port X in use?" |
 | `spout completions <shell>` | **Read only.** Emits shell completion scripts. | Setup time only. |
-| `spout alloc <service>` | **Mutates.** Registers a new port if not already claimed for this project. Idempotent — safe to re-run. | When a service is new to the project and needs a port. |
+| `spout alloc <service>` | **Mutates.** Registers a new port if not already claimed for this project. Idempotent — safe to re-run. Exits 10 if the name already exists under a sibling project identity (run `spout reproject` first). | When a service is new to the project and needs a port. |
 | `spout set <service> <port>` | **Mutates.** Registers a specific port manually. | Only when the user explicitly says "use port N for X". Prefer `alloc` otherwise. |
 | `spout rm <service>` | **Mutates.** Removes a registration. | Only when the user explicitly asks to release a port. |
 
@@ -37,11 +37,12 @@ dev:
 POSTGRES_PORT=exec('spout get postgres')
 ```
 
-If `spout get` exits 1, **read the stderr message before doing anything**. It tells you which project you're in, lists the services that *are* registered, and (if the requested name was recently removed) shows the removal date and reason. Three outcomes:
+If `spout get` exits 1, **read the stderr message before doing anything**. It tells you which project you're in, lists the services that *are* registered, and shows any removal-history or sibling-identity context. Four outcomes:
 
 - The error lists the service under a different name (e.g. you asked for `acme-postgres`, available is `postgres`) — use the real name; do **not** allocate a duplicate.
 - The error includes a `recently removed:` line for the name you asked for — the user may have just removed it. Check the date before allocating; if it's recent, ask the user before resurrecting.
-- The error says no services are registered yet, or the service genuinely isn't in the list (and isn't in `recently removed:`) — then `spout alloc <service>` is the right fix.
+- The error includes a `registered under different identity:` line — the project's git identity changed (typically after `git init`) and the old entries are orphans. Run `spout reproject --from <old-identity> --to <new-identity>` to migrate the entries, then retry. Don't allocate a duplicate.
+- The error says no services are registered yet, or the service genuinely isn't in the list (and isn't in `recently removed:` or `registered under different identity:`) — then `spout alloc <service>` is the right fix.
 
 **Service names are scoped to the project.** spout already knows which project you're in (from CWD). Use the bare service name (`postgres`), never project-prefixed (`acme-postgres`). If you don't know what the project has, run `spout env` once to enumerate everything.
 
@@ -66,6 +67,11 @@ export SPOUT_PROJECT="my-monorepo/web"
 | 4 | Registry version unsupported |
 | 5 | Port already registered to another project |
 | 6 | Port already in use by the OS |
+| 7 | I/O error (stdout/stdin closed mid-command) |
+| 8 | Compose file missing or malformed (for `spout alloc`) |
+| 9 | Usage error (invalid flag combination) |
+| 10 | `alloc` refused — service exists under sibling project identity (run `spout reproject`) |
+| 11 | `reproject` refused — services exist in both source and target |
 
 ## Things not to do
 
