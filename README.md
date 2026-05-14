@@ -308,14 +308,14 @@ A single JSON file at `~/.spout.json`:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "projects": {
     "myapp": {
-      "postgres": { "port": 20000, "allocated": "2026-04-20" },
-      "api":      { "port": 20001, "allocated": "2026-04-20" }
+      "postgres": { "port": 20000, "allocated": "2026-04-20", "protocol": "tcp" },
+      "api":      { "port": 20001, "allocated": "2026-04-20", "protocol": "tcp" }
     },
     "myproject": {
-      "postgres": { "port": 20002, "allocated": "2026-04-21" }
+      "postgres": { "port": 20002, "allocated": "2026-04-21", "protocol": "tcp" }
     }
   },
   "history": []
