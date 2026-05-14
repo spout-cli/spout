@@ -72,7 +72,23 @@ fn load_chain(files: &[PathBuf]) -> Result<(Vec<ComposeService>, Vec<String>), S
         })
 }
 
+/// Compose files in the wild top out around 50 KiB; the cap exists to
+/// stop a crafted multi-GB YAML from OOM-ing the process. Bytes, not
+/// post-parse complexity — `serde_yaml_ng` doesn't expand anchors by
+/// default so blob size is the relevant resource axis.
+const MAX_COMPOSE_BYTES: u64 = 4 * 1024 * 1024;
+
 fn read_and_parse(file: &Path) -> Result<(Vec<ComposeService>, Vec<String>), SpoutError> {
+    let metadata = std::fs::metadata(file)
+        .map_err(|e| SpoutError::ComposeInvalid(format!("stat {}: {e}", file.display())))?;
+    if metadata.len() > MAX_COMPOSE_BYTES {
+        return Err(SpoutError::ComposeInvalid(format!(
+            "{} is {} bytes; exceeds {}-byte cap",
+            file.display(),
+            metadata.len(),
+            MAX_COMPOSE_BYTES
+        )));
+    }
     let yaml = std::fs::read_to_string(file)
         .map_err(|e| SpoutError::ComposeInvalid(format!("read {}: {e}", file.display())))?;
     compose::parse(&yaml)

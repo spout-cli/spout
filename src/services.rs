@@ -13,15 +13,18 @@ const SPOUT_ICONS_ENV: &str = "SPOUT_ICONS";
 
 /// Canonical env-var name for a service's port.
 ///
-/// Uppercases the service name, converts hyphens to underscores, and
-/// appends `_PORT` unless the result already ends in `_PORT` or is
-/// bare `PORT`.
+/// Uppercases the service name, replaces any non-alphanumeric character
+/// with an underscore, and appends `_PORT` unless the result already
+/// ends in `_PORT` or is bare `PORT`. The non-alphanumeric sanitisation
+/// matters for shell safety — the README's `eval $(spout env)` pattern
+/// would otherwise evaluate any `$()` / `;` / backticks in service
+/// names as shell, turning a crafted compose file into an RCE chain.
 pub fn env_var_name(service: &str) -> String {
     let normalised: String = service
         .chars()
         .map(|c| match c {
-            '-' => '_',
-            c => c.to_ascii_uppercase(),
+            'a'..='z' | 'A'..='Z' | '0'..='9' => c.to_ascii_uppercase(),
+            _ => '_',
         })
         .collect();
 
@@ -127,6 +130,34 @@ mod tests {
     #[test]
     fn env_var_name_empty_string_gets_port_suffix() {
         assert_eq!(env_var_name(""), "_PORT");
+    }
+
+    #[test]
+    fn env_var_name_sanitises_shell_metachars() {
+        // Crafted service names must not survive into env output —
+        // `eval $(spout env)` would otherwise be RCE-able. Property:
+        // no shell-active character appears in the result for any
+        // input containing one.
+        let hostile = [
+            "foo$bar",
+            "foo`bar`",
+            "foo$(bar)",
+            "foo;bar",
+            "foo bar",
+            "foo|bar",
+            "foo&bar",
+            "foo>bar",
+        ];
+        let bad = ['$', '`', '(', ')', ';', ' ', '|', '&', '>', '<', '"', '\''];
+        for service in hostile {
+            let out = env_var_name(service);
+            for c in bad {
+                assert!(
+                    !out.contains(c),
+                    "{out:?} from {service:?} still contains {c:?}"
+                );
+            }
+        }
     }
 
     #[test]

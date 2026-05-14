@@ -35,6 +35,7 @@ pub fn lock_path(registry: &Path) -> PathBuf {
 }
 
 pub fn read(path: &Path) -> Result<Registry, SpoutError> {
+    refuse_if_symlink(path)?;
     match fs::read_to_string(path) {
         Ok(contents) => {
             let registry: Registry = serde_json::from_str(&contents)
@@ -49,7 +50,22 @@ pub fn read(path: &Path) -> Result<Registry, SpoutError> {
     }
 }
 
+/// Refuse to operate on the registry path if it's a symlink. Defends
+/// against the swap attack where a malicious local user on a shared
+/// host replaces `~/.spout.json` with a symlink to (e.g.) `~/.ssh/`
+/// to redirect the atomic-rename onto unrelated files.
+fn refuse_if_symlink(path: &Path) -> Result<(), SpoutError> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => Err(SpoutError::RegistryCorrupt(format!(
+            "refusing to operate on symlink: {}",
+            path.display()
+        ))),
+        _ => Ok(()),
+    }
+}
+
 pub fn write(path: &Path, registry: &Registry) -> Result<(), SpoutError> {
+    refuse_if_symlink(path)?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)
         .map_err(|e| SpoutError::RegistryCorrupt(format!("create parent: {e}")))?;
