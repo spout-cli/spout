@@ -209,7 +209,7 @@ fn rm_unregistered_service_errors() {
 #[test]
 fn ls_empty_registry_is_descriptive() {
     let (_dir, path) = temp_registry();
-    let out = ls(&path, None, true).unwrap().unwrap();
+    let out = ls(&path, None, true).unwrap();
     assert!(out.contains("no registrations"));
 }
 
@@ -218,7 +218,7 @@ fn ls_shows_project_and_services_after_alloc() {
     let (_dir, path) = temp_registry();
     alloc(&path, "postgres", Protocol::default()).unwrap();
     alloc(&path, "redis", Protocol::default()).unwrap();
-    let out = ls(&path, None, true).unwrap().unwrap();
+    let out = ls(&path, None, true).unwrap();
     assert!(out.contains("postgres"));
     assert!(out.contains("redis"));
 }
@@ -232,9 +232,7 @@ fn ls_filters_to_named_project() {
         Ok(())
     })
     .unwrap();
-    let out = ls(&path, Some(Some("alpha".to_owned())), true)
-        .unwrap()
-        .unwrap();
+    let out = ls(&path, Some(Some("alpha".to_owned())), true).unwrap();
     assert!(out.contains("alpha"));
     assert!(out.contains("postgres"));
     assert!(!out.contains("redis"));

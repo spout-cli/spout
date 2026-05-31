@@ -110,13 +110,15 @@ pub fn set(
 }
 
 /// `project_filter`: `None` shows all, `Some(None)` is the current project,
-/// `Some(Some(name))` is a named one. Returns `Ok(None)` when the TUI has
-/// rendered and exited (caller should print nothing more).
+/// `Some(Some(name))` is a named one. Renders inline: on an interactive
+/// terminal a coloured, columned, icon-prefixed table; piped/redirected,
+/// `--no-tui`, or `$NO_COLOR` falls back to the frozen plain one-liner that
+/// scripts and agents depend on byte-for-byte.
 pub fn ls(
     registry_path: &Path,
     project_filter: Option<Option<String>>,
     no_tui: bool,
-) -> Result<Option<String>, SpoutError> {
+) -> Result<String, SpoutError> {
     let reg = registry::read(registry_path)?;
     let project_name = match project_filter {
         None => None,
@@ -126,16 +128,26 @@ pub fn ls(
 
     let bound = allocator::probe_bound_ports(&reg);
 
-    if std::io::stdout().is_terminal() && !no_tui {
-        crate::tui::render(&reg, project_name.as_deref(), &bound)?;
-        return Ok(None);
-    }
+    // NO_COLOR opts out for any value (even empty) per the de-facto standard.
+    let colour = format::should_colour(
+        std::io::stdout().is_terminal(),
+        std::env::var_os("NO_COLOR").is_some(),
+        no_tui,
+    );
 
-    let text = match project_name {
-        Some(p) => format::project_block(&p, reg.projects.get(&p), &bound),
-        None => format::all(&reg, &bound),
+    let text = if colour {
+        let palette = format::Palette::new(true);
+        match project_name {
+            Some(p) => format::project_block_rich(&p, reg.projects.get(&p), &bound, &palette),
+            None => format::all_rich(&reg, &bound, &palette),
+        }
+    } else {
+        match project_name {
+            Some(p) => format::project_block(&p, reg.projects.get(&p), &bound),
+            None => format::all(&reg, &bound),
+        }
     };
-    Ok(Some(text))
+    Ok(text)
 }
 
 /// `project_filter` semantics match `ls`, except "no filter" also resolves

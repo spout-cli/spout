@@ -15,7 +15,6 @@ mod project_markers;
 mod protocol;
 mod registry;
 mod services;
-mod tui;
 
 use std::process::exit;
 
@@ -96,9 +95,7 @@ fn run(cli: Cli) -> Result<(), SpoutError> {
             }
         }
         Commands::Ls { project, no_tui } => {
-            if let Some(out) = commands::ls(&reg_path, project, no_tui)? {
-                println!("{out}");
-            }
+            println!("{}", commands::ls(&reg_path, project, no_tui)?);
         }
         Commands::Env { project } => {
             if let Some(out) = commands::env(&reg_path, project)? {
