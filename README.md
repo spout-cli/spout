@@ -3,6 +3,8 @@
 > Stops Claude Code brute-forcing your ports (mostly).
 > No daemon. No config. No surprises.
 
+![spout in action](docs/images/demo.gif)
+
 ---
 
 ## Getting "port already in use"?
@@ -105,11 +107,9 @@ spout reproject --from X --to Y  # migrate registrations between identities [MUT
 
 ### Listing services
 
-In a terminal, `spout ls` (with or without `--project`) launches a styled, read-only viewer — services grouped per project, bound/free indicator on every port, press `q` / `Esc` / `Ctrl-C` to exit.
+In a terminal, `spout ls` (with or without `--project`) prints a coloured, grouped table — services per project, a bound/free dot (`●`/`○`) on every port, plus its env-var name and allocation date. It renders inline and returns; no full-screen mode, nothing to quit.
 
-![spout ls TUI](docs/images/tui-ls.png)
-
-The TUI only activates on a real TTY. Pipes, redirects, and `--no-tui` all emit plain text instead — the same data, byte-identical between the two paths:
+Colour and icons appear only on an interactive terminal. Pipes, redirects, `--no-tui`, and `$NO_COLOR` emit plain, colour-free text instead — the compact form scripts, Makefiles, CI, and AI agents can depend on byte-for-byte:
 
 ```
 github.com/acme/billing-portal
@@ -124,12 +124,11 @@ scratch-sandbox
   ○ quic-echo   20021/udp  (since 2026-04-19)
 ```
 
-Scripts, Makefiles, CI, and AI agents always see this plain path — the TUI is strictly for humans eyeballing state in a real terminal.
-
 ```bash
-spout ls                    # interactive viewer in a terminal
+spout ls                    # coloured table in a terminal
 spout ls --no-tui           # plain text, even in a terminal
 spout ls | cat              # plain text (pipe → no TTY)
+NO_COLOR=1 spout ls         # plain text, colour disabled
 ```
 
 ### Compose files
@@ -213,7 +212,7 @@ $ spout whois 5432
 5432/udp: github.com/acme/game/session    (active, allocated 2026-04-18)
 ```
 
-### Personalising the viewer
+### Personalising service names
 
 You can prefix service names with an icon of your choice via `SPOUT_ICONS`:
 
@@ -222,7 +221,9 @@ export SPOUT_ICONS='postgres=🐘,redis=🔴,api=🌐,mailpit=📨'
 spout ls
 ```
 
-spout ships no built-in mapping — names are yours to define. The variable is read once per invocation; drop it in your shell rc if you want it everywhere. It affects only the terminal viewer; `--no-tui` and piped output are unchanged, so scripts and CI see the same plain text either way.
+![spout ls with SPOUT_ICONS](docs/images/icons.gif)
+
+spout ships no built-in mapping — names are yours to define. The variable is read once per invocation; drop it in your shell rc if you want it everywhere. Icons show only in the coloured terminal table; `--no-tui` and piped output are unchanged, so scripts and CI see the same plain text either way.
 
 ### Project name
 
@@ -412,7 +413,11 @@ spout still prevents cross-project collisions — you just do the last mile manu
 
 ## For AI agents
 
-spout is designed to be used by agents as much as by humans. Three things make this work:
+spout is designed to be used by agents as much as by humans. When an agent slips, spout doesn't just error — it prints the recovery action (to stderr; stdout stays clean for scripting):
+
+![spout guiding an agent](docs/images/agents.gif)
+
+Several things make this work:
 
 - Every mutating command is annotated `[MUTATES REGISTRY]` in its help text
 - `get`/`ls`/`check` are guaranteed read-only — safe to call speculatively
