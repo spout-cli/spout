@@ -1,6 +1,6 @@
 [package]
 name = "spout"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.88.0"
 description = "Local development port registry. No daemon. No config. No surprises."
@@ -17,6 +17,7 @@ include = [
     "/LICENSE-*",
     "/CHANGELOG.md",
     "docs/images/*.png",
+    "docs/images/*.gif",
 ]
 
 [dependencies]
@@ -31,7 +32,7 @@ thiserror = "2"
 dirs = "6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-ratatui = "0.29"
+unicode-width = "0.2"
 
 [dev-dependencies]
 serial_test = "3"

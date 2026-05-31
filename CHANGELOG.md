@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-31
+
+### Changed
+- `spout ls` renders a coloured, grouped table inline on an interactive terminal — services per project with a bound/free dot, env-var name, and allocation date — instead of taking over the screen with a full-screen viewer. It prints and returns; there is nothing to quit. Colour and `SPOUT_ICONS` icons appear only on a TTY; pipes, redirects, `--no-tui`, and `$NO_COLOR` emit the same plain text as before, byte-for-byte, so scripts and agents are unaffected.
+
+### Removed
+- The full-screen `ls` TUI and its `ratatui` dependency. Replaced by the inline renderer above; `unicode-width` is now used for column alignment.
+
 ## [0.2.0] - 2026-05-12
 
 ### Added
